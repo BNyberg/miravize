@@ -1,0 +1,15 @@
+export const qk = {
+  memberships: ['memberships'] as const,
+  running: ['running-timer'] as const,
+  clients: (ws: string) => ['clients', ws] as const,
+  projects: (ws: string) => ['projects', ws] as const,
+  tags: (ws: string) => ['tags', ws] as const,
+  aliases: (ws: string) => ['aliases', ws] as const,
+  projectClients: (ws: string) => ['project-clients', ws] as const,
+  projectTags: (ws: string) => ['project-tags', ws] as const,
+  activities: (ws: string) => ['activities', ws] as const,
+  entries: (ws: string, extra?: string) => ['entries', ws, extra ?? ''] as const,
+  requests: (ws: string) => ['requests', ws] as const,
+  members: (ws: string) => ['members', ws] as const,
+  invites: (ws: string) => ['invites', ws] as const,
+}

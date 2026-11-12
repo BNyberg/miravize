@@ -1,0 +1,4 @@
+project_id = "genki-tenki"
+
+[functions.extract-request]
+verify_jwt = true
