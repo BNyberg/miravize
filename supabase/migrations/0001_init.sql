@@ -1,4 +1,4 @@
--- Genki Tenki core schema, RLS, RPCs, and storage.
+-- Miravize core schema, RLS, RPCs, and storage.
 
 create extension if not exists pgcrypto;
 

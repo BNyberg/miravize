@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -101,8 +102,8 @@ export function TimesheetPage() {
     const shares: Share[] = []
 
     for (const entry of entries.data ?? []) {
-      if (projectId && entry.project_id !== projectId) continue
-      if (activityId && entry.activity_id !== activityId) continue
+      if (projectId && (entry.project_id ?? NO_PROJECT) !== projectId) continue
+      if (activityId && (entry.activity_id ?? NO_ACTIVITY) !== activityId) continue
       const links = catalog.projectClients.filter((pc) => pc.project_id === entry.project_id)
       const seconds = entry.duration_seconds ?? 0
       const project = entry.project
@@ -229,8 +230,11 @@ export function TimesheetPage() {
       .sort((a, b) => a.name.localeCompare(b.name))
 
     const tasks = (requests.data ?? []).filter((req) => {
-      if (projectId && req.project_id !== projectId) return false
+      if (projectId && (req.project_id ?? NO_PROJECT) !== projectId) return false
       if (!clientId) return true
+      if (clientId === NO_CLIENT) {
+        return !catalog.projectClients.some((pc) => pc.project_id === req.project_id)
+      }
       return catalog.projectClients.some((pc) => pc.project_id === req.project_id && pc.client_id === clientId)
     })
 
@@ -299,6 +303,8 @@ export function TimesheetPage() {
     projectId,
     requests.data,
   ])
+
+  const loading = entries.isPending || requests.isPending || catalog.loading
 
   function exportCsv() {
     const header = ['Type', 'Client', 'Project', 'Activity', 'Hours', 'Amount', 'Currency']
@@ -375,6 +381,7 @@ export function TimesheetPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All projects</SelectItem>
+              {projectId === NO_PROJECT ? <SelectItem value={NO_PROJECT}>No project</SelectItem> : null}
               {catalog.projects.map((project) => (
                 <SelectItem key={project.id} value={project.id}>
                   <span className="flex items-center gap-2">
@@ -393,6 +400,7 @@ export function TimesheetPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All clients</SelectItem>
+              {clientId === NO_CLIENT ? <SelectItem value={NO_CLIENT}>No client</SelectItem> : null}
               {catalog.clients.map((client) => (
                 <SelectItem key={client.id} value={client.id}>
                   {client.name}
@@ -408,6 +416,7 @@ export function TimesheetPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All activities</SelectItem>
+              {activityId === NO_ACTIVITY ? <SelectItem value={NO_ACTIVITY}>No activity</SelectItem> : null}
               {catalog.activities.map((activity) => (
                 <SelectItem key={activity.id} value={activity.id}>
                   {activity.name}
@@ -422,21 +431,59 @@ export function TimesheetPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Summary label="Total hours" value={formatHours(report.totalSeconds)} />
-        <Summary label="Billable hours" value={formatHours(report.billableSeconds)} />
-        <Summary label="Amount" value={formatMoney(report.money)} />
-        <Summary label="Tasks" value={String(report.taskCount)} />
+        {loading ? (
+          <>
+            <SummarySkeleton label="Total hours" />
+            <SummarySkeleton label="Billable hours" />
+            <SummarySkeleton label="Amount" />
+            <SummarySkeleton label="Tasks" />
+          </>
+        ) : (
+          <>
+            <Summary label="Total hours" value={formatHours(report.totalSeconds)} />
+            <Summary label="Billable hours" value={formatHours(report.billableSeconds)} />
+            <Summary label="Amount" value={formatMoney(report.money)} />
+            <Summary label="Tasks" value={String(report.taskCount)} />
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 print:hidden lg:grid-cols-3">
-        <Donut title="Hours by project" slices={report.projects} />
-        <Donut title="Hours by client" slices={report.clients} />
-        <Donut title="Hours by activity" slices={report.activities} />
+        {loading ? (
+          <>
+            <DonutSkeleton title="Hours by project" />
+            <DonutSkeleton title="Hours by client" />
+            <DonutSkeleton title="Hours by activity" />
+          </>
+        ) : (
+          <>
+            <Donut
+              title="Hours by project"
+              slices={report.projects}
+              selectedId={projectId}
+              onSelect={(id) => setProjectId(id === projectId ? '' : id)}
+            />
+            <Donut
+              title="Hours by client"
+              slices={report.clients}
+              selectedId={clientId}
+              onSelect={(id) => setClientId(id === clientId ? '' : id)}
+            />
+            <Donut
+              title="Hours by activity"
+              slices={report.activities}
+              selectedId={activityId}
+              onSelect={(id) => setActivityId(id === activityId ? '' : id)}
+            />
+          </>
+        )}
       </div>
 
       <section>
         <h2 className="mb-2 text-sm font-medium">Clients and projects</h2>
-        {report.clientSplits.length === 0 ? (
+        {loading ? (
+          <ClientsSkeleton />
+        ) : report.clientSplits.length === 0 ? (
           <p className="text-sm text-muted-foreground">No time in this range.</p>
         ) : (
           <div className="rounded-lg border border-border bg-card">
@@ -479,9 +526,19 @@ export function TimesheetPage() {
             <TabsTrigger value="client">By client</TabsTrigger>
             <TabsTrigger value="both">By client and project</TabsTrigger>
           </TabsList>
-          <TaskGroups value="project" groups={report.taskGroups.project} />
-          <TaskGroups value="client" groups={report.taskGroups.client} />
-          <TaskGroups value="both" groups={report.taskGroups.both} />
+          {loading ? (
+            <>
+              <TaskGroupsSkeleton value="project" />
+              <TaskGroupsSkeleton value="client" />
+              <TaskGroupsSkeleton value="both" />
+            </>
+          ) : (
+            <>
+              <TaskGroups value="project" groups={report.taskGroups.project} />
+              <TaskGroups value="client" groups={report.taskGroups.client} />
+              <TaskGroups value="both" groups={report.taskGroups.both} />
+            </>
+          )}
         </Tabs>
         <div className="hidden space-y-6 print:block">
           <PrintedTasks title="By project" groups={report.taskGroups.project} />
@@ -517,23 +574,25 @@ function Summary({ label, value }: { label: string; value: string }) {
   )
 }
 
+function SummarySkeleton({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <Skeleton className="mt-2 h-6 w-16" />
+    </div>
+  )
+}
+
 function pointOnCircle(cx: number, cy: number, radius: number, angle: number) {
   return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)] as const
 }
 
+function isFullRing(start: number, end: number) {
+  return end - start >= Math.PI * 2 - 1e-4
+}
+
 function donutSlicePath(cx: number, cy: number, outer: number, inner: number, start: number, end: number) {
   const sweep = end - start
-  if (sweep >= Math.PI * 2 - 1e-4) {
-    return [
-      `M ${cx} ${cy - outer}`,
-      `A ${outer} ${outer} 0 1 1 ${cx - 0.01} ${cy - outer}`,
-      `A ${outer} ${outer} 0 1 1 ${cx} ${cy - outer}`,
-      `M ${cx} ${cy - inner}`,
-      `A ${inner} ${inner} 0 1 0 ${cx - 0.01} ${cy - inner}`,
-      `A ${inner} ${inner} 0 1 0 ${cx} ${cy - inner}`,
-      'Z',
-    ].join(' ')
-  }
   const large = sweep > Math.PI ? 1 : 0
   const [x1, y1] = pointOnCircle(cx, cy, outer, start)
   const [x2, y2] = pointOnCircle(cx, cy, outer, end)
@@ -542,7 +601,17 @@ function donutSlicePath(cx: number, cy: number, outer: number, inner: number, st
   return `M ${x1} ${y1} A ${outer} ${outer} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${inner} ${inner} 0 ${large} 0 ${x4} ${y4} Z`
 }
 
-function Donut({ title, slices }: { title: string; slices: Bucket[] }) {
+function Donut({
+  title,
+  slices,
+  selectedId,
+  onSelect,
+}: {
+  title: string
+  slices: Bucket[]
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const total = slices.reduce((sum, slice) => sum + slice.seconds, 0)
   const arcs = useMemo(() => {
@@ -565,22 +634,41 @@ function Donut({ title, slices }: { title: string; slices: Bucket[] }) {
         <div className="flex items-center gap-4">
           <div className="relative size-28 shrink-0">
             <svg viewBox="0 0 100 100" className="size-full" role="img" aria-label={title}>
-              {arcs.map((slice) => (
-                <path
-                  key={slice.id}
-                  d={donutSlicePath(50, 50, 46, 28, slice.start, slice.end)}
-                  fill={slice.color}
-                  fillRule="evenodd"
-                  className="transition-opacity duration-150"
-                  opacity={hoveredId && hoveredId !== slice.id ? 0.3 : 1}
-                  onMouseEnter={() => setHoveredId(slice.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                >
-                  <title>
-                    {slice.label}: {formatHours(slice.seconds)} ({Math.round(slice.share * 100)}%)
-                  </title>
-                </path>
-              ))}
+              {arcs.map((slice) => {
+                const full = isFullRing(slice.start, slice.end)
+                const label = `${slice.label}: ${formatHours(slice.seconds)} (${Math.round(slice.share * 100)}%)`
+                return full ? (
+                  <circle
+                    key={slice.id}
+                    cx={50}
+                    cy={50}
+                    r={37}
+                    fill="none"
+                    stroke={slice.color}
+                    strokeWidth={18}
+                    className="cursor-pointer transition-opacity duration-150"
+                    opacity={hoveredId && hoveredId !== slice.id ? 0.3 : 1}
+                    onMouseEnter={() => setHoveredId(slice.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    onClick={() => onSelect(slice.id)}
+                  >
+                    <title>{label}</title>
+                  </circle>
+                ) : (
+                  <path
+                    key={slice.id}
+                    d={donutSlicePath(50, 50, 46, 28, slice.start, slice.end)}
+                    fill={slice.color}
+                    className="cursor-pointer transition-opacity duration-150"
+                    opacity={hoveredId && hoveredId !== slice.id ? 0.3 : 1}
+                    onMouseEnter={() => setHoveredId(slice.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    onClick={() => onSelect(slice.id)}
+                  >
+                    <title>{label}</title>
+                  </path>
+                )
+              })}
             </svg>
             {hovered ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-3 text-center">
@@ -598,15 +686,17 @@ function Donut({ title, slices }: { title: string; slices: Bucket[] }) {
               <li key={slice.id}>
                 <button
                   type="button"
+                  aria-pressed={selectedId === slice.id}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
-                    hoveredId === slice.id && 'bg-muted',
+                    (hoveredId === slice.id || selectedId === slice.id) && 'bg-muted',
                     hoveredId && hoveredId !== slice.id && 'opacity-50',
                   )}
                   onMouseEnter={() => setHoveredId(slice.id)}
                   onMouseLeave={() => setHoveredId(null)}
                   onFocus={() => setHoveredId(slice.id)}
                   onBlur={() => setHoveredId(null)}
+                  onClick={() => onSelect(slice.id)}
                 >
                   <span className="size-2 shrink-0 rounded-sm" style={{ background: slice.color }} aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate">{slice.label}</span>
@@ -619,6 +709,59 @@ function Donut({ title, slices }: { title: string; slices: Bucket[] }) {
           </ul>
         </div>
       )}
+    </div>
+  )
+}
+
+function DonutSkeleton({ title }: { title: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="mb-3 text-sm font-medium">{title}</p>
+      <div className="flex items-center gap-4">
+        <Skeleton className="size-28 shrink-0 rounded-full" />
+        <ul className="min-w-0 flex-1 space-y-2">
+          <li>
+            <Skeleton className="h-3 w-full" />
+          </li>
+          <li>
+            <Skeleton className="h-3 w-4/5" />
+          </li>
+          <li>
+            <Skeleton className="h-3 w-3/5" />
+          </li>
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+function ClientsSkeleton() {
+  return (
+    <div className="rounded-lg border border-border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Client / project</TableHead>
+            <TableHead>Hours</TableHead>
+            <TableHead>Amount</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: 5 }, (_, index) => (
+            <TableRow key={index}>
+              <TableCell>
+                <Skeleton className="h-4 w-40" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-12" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-20" />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
@@ -655,6 +798,22 @@ function TaskList({ groups }: { groups: { id: string; name: string; requests: Su
         </div>
       ))}
     </div>
+  )
+}
+
+function TaskGroupsSkeleton({ value }: { value: string }) {
+  return (
+    <TabsContent value={value}>
+      <div className="space-y-4">
+        {Array.from({ length: 2 }, (_, group) => (
+          <div key={group} className="space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+          </div>
+        ))}
+      </div>
+    </TabsContent>
   )
 }
 

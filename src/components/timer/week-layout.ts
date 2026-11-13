@@ -2,9 +2,16 @@ import { startOfDay } from 'date-fns'
 
 import type { TimeEntry } from '@/types'
 
-export const HOUR_PX = 64
+export const DEFAULT_HOUR_PX = 64
+export const HOUR_PX = DEFAULT_HOUR_PX
+export const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 2, 2.5, 3] as const
+export const DEFAULT_ZOOM = 1
 export const SNAP_MS = 15 * 60 * 1000
 export const DAY_MS = 24 * 60 * 60 * 1000
+
+export function hourPxFor(zoom: number) {
+  return DEFAULT_HOUR_PX * zoom
+}
 
 export function snap(ms: number) {
   return Math.round(ms / SNAP_MS) * SNAP_MS
@@ -15,12 +22,12 @@ export function dayBounds(day: Date) {
   return { start, end: start + DAY_MS }
 }
 
-export function topFor(ms: number, day: Date) {
-  return ((ms - dayBounds(day).start) / DAY_MS) * 24 * HOUR_PX
+export function topFor(ms: number, day: Date, hourPx = DEFAULT_HOUR_PX) {
+  return ((ms - dayBounds(day).start) / DAY_MS) * 24 * hourPx
 }
 
-export function heightFor(start: number, end: number) {
-  return Math.max(((end - start) / DAY_MS) * 24 * HOUR_PX, 16)
+export function heightFor(start: number, end: number, hourPx = DEFAULT_HOUR_PX) {
+  return Math.max(((end - start) / DAY_MS) * 24 * hourPx, 16)
 }
 
 export function inkOn(hex: string) {

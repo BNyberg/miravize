@@ -1,4 +1,4 @@
-project_id = "genki-tenki"
+project_id = "miravize"
 
 [functions.extract-request]
 verify_jwt = true

@@ -1,4 +1,4 @@
-# Genki Tenki
+# Miravize
 
 Workspace-scoped time tracker, client timesheets with project hour splits, and an Anthropic-powered support request logger.
 
@@ -34,4 +34,4 @@ Keep `ANTHROPIC_API_KEY` in Supabase Edge secrets only.
 
 ## Design
 
-Visual rules live in `design-system/genki-tenki/MASTER.md` (ui-ux-pro-max), with brand green `#1C9C71` / `#23C78B` and OLED dark surfaces.
+Visual rules live in `design-system/miravize/MASTER.md` (ui-ux-pro-max), with brand green `#1C9C71` / `#23C78B` and OLED dark surfaces.

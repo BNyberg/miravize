@@ -27,7 +27,6 @@
   --sidebar: #efede8;
   --sidebar-foreground: #1c1b19;
   --sidebar-border: #ddd9d2;
-  --running: #1f7a4d;
 }
 
 .dark {
@@ -52,7 +51,6 @@
   --sidebar: #10100f;
   --sidebar-foreground: #e8e6e1;
   --sidebar-border: #2a2a28;
-  --running: #3ddc97;
 }
 
 @theme inline {
@@ -112,6 +110,12 @@
   :focus-visible {
     outline: 1px solid var(--ring);
     outline-offset: 2px;
+  }
+
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--ring);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -206,8 +210,8 @@ textarea:not(:disabled),
   transition: background-color 75ms ease;
 }
 
-input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):not(:disabled):hover,
-textarea:not(:disabled):hover,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):not(:disabled):not([data-hover='wash']):hover,
+textarea:not(:disabled):not([data-hover='wash']):hover,
 [data-slot='select-trigger']:not(:disabled):hover,
 [data-slot='select-trigger'][data-state='open'],
 [data-slot='date-trigger']:not(:disabled):hover,

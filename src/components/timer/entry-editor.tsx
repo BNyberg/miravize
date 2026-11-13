@@ -192,7 +192,7 @@ function EntryMetaChips({
             <Chip label={project?.name ?? 'Project'} empty={!project} color={project?.color} />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="max-h-64 overflow-y-auto">
+        <DropdownMenuContent>
           {choices.map((item) => (
             <DropdownMenuItem key={item.id} onSelect={() => applyProject(item.id)}>
               <span className="size-2 shrink-0 rounded-sm" style={{ background: item.color }} aria-hidden="true" />
@@ -208,7 +208,7 @@ function EntryMetaChips({
               <Chip label={activity?.name ?? 'Activity'} empty={!activity} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+          <DropdownMenuContent>
             {activity ? (
               <DropdownMenuItem
                 onSelect={() =>
@@ -244,7 +244,7 @@ function EntryMetaChips({
               />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+          <DropdownMenuContent>
             {linkedClients.map((item) => {
               const checked = clientIds.includes(item.id)
               return (
@@ -289,6 +289,7 @@ function EntryEditor({
   onSave,
   onPatch,
   onDelete,
+  onContinue,
 }: {
   draft: Draft | null
   workspaces: Workspace[]
@@ -302,6 +303,14 @@ function EntryEditor({
   onSave: (input: EntrySaveInput) => void
   onPatch: (input: EntrySaveInput) => Promise<void>
   onDelete?: (id: string) => void
+  onContinue?: (input: {
+    workspaceId: string
+    projectId: string | null
+    description: string
+    billable: boolean
+    activityId: string | null
+    clientIds: string[]
+  }) => void
 }) {
   const [fields, setFields] = useState<Fields>({
     workspaceId: '',
@@ -437,7 +446,7 @@ function EntryEditor({
                   ) : <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Draft</p>}
                   <input
                     aria-label="Description"
-                    className="w-full bg-transparent text-base font-semibold outline-none transition-colors duration-75 hover:bg-muted placeholder:font-normal placeholder:text-muted-foreground"
+                    className="w-full rounded-md bg-transparent text-base font-semibold outline-none transition-colors duration-75 hover:bg-muted placeholder:font-normal placeholder:text-muted-foreground"
                     value={fields.description}
                     placeholder={draft?.mode === 'edit' ? 'Description · Enter to save' : 'Description'}
                     onChange={(event) => setFields((current) => ({ ...current, description: event.target.value }))}
@@ -544,27 +553,46 @@ function EntryEditor({
                   ) : null}
                 </div>
               ) : null}
-              <div className="flex h-8 items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Switch
                   id="entry-billable"
                   checked={fields.billable}
                   onCheckedChange={(billable) => void commit({ ...fields, billable })}
                 />
                 <Label htmlFor="entry-billable">Billable</Label>
+                {draft?.mode === 'edit' ? (
+                  <Button
+                    className="ml-auto"
+                    disabled={pending || !onContinue}
+                    onClick={() => {
+                      if (!onContinue) return
+                      const nextMode = clientMode(projectClients.filter((row) => row.project_id === fields.projectId))
+                      onContinue({
+                        workspaceId: fields.workspaceId,
+                        projectId: fields.projectId || null,
+                        description: fields.description,
+                        billable: fields.billable,
+                        activityId: fields.activityId || null,
+                        clientIds: nextMode === 'manual' ? fields.clientIds : [],
+                      })
+                    }}
+                  >
+                    Continue?
+                  </Button>
+                ) : (
+                  <Button
+                    className="ml-auto"
+                    disabled={pending || !fields.projectId}
+                    onClick={() => {
+                      const input = payload(fields)
+                      if (!input) return
+                      onSave(input)
+                    }}
+                  >
+                    {draft?.mode === 'start' ? 'Start' : 'Log time'}
+                  </Button>
+                )}
               </div>
-              {draft?.mode !== 'edit' ? (
-                <Button
-                  className="justify-self-end"
-                  disabled={pending || !fields.projectId}
-                  onClick={() => {
-                    const input = payload(fields)
-                    if (!input) return
-                    onSave(input)
-                  }}
-                >
-                  {draft?.mode === 'start' ? 'Start' : 'Log time'}
-                </Button>
-              ) : null}
             </div>
           )}
         </PopoverContent>

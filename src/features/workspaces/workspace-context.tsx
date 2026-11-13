@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 
 const ALL = 'all'
-const STORAGE_KEY = 'genki-workspace-id'
+const STORAGE_KEY = 'miravize-workspace-id'
+const LEGACY_STORAGE_KEY = 'genki-workspace-id'
 
 type WorkspaceContextValue = {
   workspaceId: string
@@ -21,9 +22,16 @@ type WorkspaceContextValue = {
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [workspaceId, setWorkspaceIdState] = useState(
-    () => localStorage.getItem(STORAGE_KEY) ?? ALL,
-  )
+  const [workspaceId, setWorkspaceIdState] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored) return stored
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (legacy) {
+      localStorage.setItem(STORAGE_KEY, legacy)
+      return legacy
+    }
+    return ALL
+  })
 
   const { data = [], isLoading } = useQuery({
     queryKey: qk.memberships,

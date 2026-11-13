@@ -1,9 +1,11 @@
-import { Check, Circle } from '@phosphor-icons/react'
+import { Check, Circle, Eye, EyeSlash } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 
+import { AuthSocialButtons } from '@/components/auth/auth-social-buttons'
+import { AuthSweepCopy } from '@/components/auth/auth-sweep-copy'
+import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { isValidEmail } from '@/lib/email'
@@ -25,6 +27,7 @@ function passwordIsStrong(value: string) {
 export function SignupPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [workspaceName, setWorkspaceName] = useState('Personal')
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -60,100 +63,113 @@ export function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Create account</CardTitle>
-          <CardDescription>Start with a workspace you can invite people into later.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="flex flex-col gap-3" onSubmit={(e) => void onSubmit(e)}>
-            {error ? (
-              <div role="alert" className="rounded-md border border-destructive/40 p-3 text-sm">
-                {error}
-              </div>
-            ) : null}
-            {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-            <div className="grid gap-1.5">
-              <Label htmlFor="email">
-                Email <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                aria-required
-                aria-invalid={emailInvalid}
-                aria-describedby={emailInvalid ? 'signup-email-error' : undefined}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              {emailInvalid ? (
-                <p id="signup-email-error" className="text-sm text-destructive">
-                  Enter a valid email address.
-                </p>
-              ) : null}
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="password">
-                Password <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                aria-required
-                aria-describedby="password-rules"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <ul id="password-rules" className="grid gap-1 pt-1">
-                {PASSWORD_RULES.map((rule) => {
-                  const met = rule.test(password)
-                  return (
-                    <li
-                      key={rule.id}
-                      className={cn(
-                        'flex items-center gap-2 text-sm',
-                        met ? 'text-foreground' : 'text-muted-foreground',
-                      )}
-                    >
-                      {met ? (
-                        <Check className="size-4 text-primary" weight="bold" aria-hidden />
-                      ) : (
-                        <Circle className="size-4" aria-hidden />
-                      )}
-                      {rule.label}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="workspace">
-                First workspace <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="workspace"
-                required
-                aria-required
-                value={workspaceName}
-                onChange={(e) => setWorkspaceName(e.target.value)}
-              />
-            </div>
-            <Button type="submit" disabled={!canSubmit}>
-              Create account
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <Link to="/login" className="text-primary underline-offset-4 hover:underline">
-                Sign in
-              </Link>
+      <form className="flex flex-col gap-5" onSubmit={(e) => void onSubmit(e)}>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <BrandMark onLight className="size-16" />
+          <div className="grid gap-1">
+            <AuthSweepCopy as="h1" className="text-2xl font-medium tracking-tight">
+              Create your account
+            </AuthSweepCopy>
+            <AuthSweepCopy delay className="text-sm text-[#5e5c57]">
+              Start with a workspace you can invite people into later.
+            </AuthSweepCopy>
+          </div>
+        </div>
+        {error ? (
+          <div role="alert" className="rounded-md border border-destructive/40 p-3 text-sm">
+            {error}
+          </div>
+        ) : null}
+        {message ? <p className="text-sm text-[#5e5c57]">{message}</p> : null}
+        <div className="grid gap-1.5">
+          <Label htmlFor="email">
+            Email <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="email"
+            type="email"
+            required
+            aria-required
+            aria-invalid={emailInvalid}
+            aria-describedby={emailInvalid ? 'signup-email-error' : undefined}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          {emailInvalid ? (
+            <p id="signup-email-error" className="text-sm text-destructive">
+              Enter a valid email address.
             </p>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          ) : null}
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="password">
+            Password <span className="text-destructive">*</span>
+          </Label>
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              required
+              aria-required
+              aria-describedby="password-rules"
+              autoComplete="new-password"
+              className="pr-10"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-[#5e5c57]"
+              onClick={() => setShowPassword((open) => !open)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+          <ul id="password-rules" className="grid gap-1 pt-1">
+            {PASSWORD_RULES.map((rule) => {
+              const met = rule.test(password)
+              return (
+                <li
+                  key={rule.id}
+                  className={cn(
+                    'flex items-center gap-2 text-sm',
+                    met ? 'text-[#1c1b19]' : 'text-[#5e5c57]',
+                  )}
+                >
+                  {met ? (
+                    <Check className="size-4 text-primary" weight="bold" aria-hidden />
+                  ) : (
+                    <Circle className="size-4" aria-hidden />
+                  )}
+                  {rule.label}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="workspace">
+            First workspace <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="workspace"
+            required
+            aria-required
+            value={workspaceName}
+            onChange={(e) => setWorkspaceName(e.target.value)}
+          />
+        </div>
+        <Button type="submit" className="h-10" disabled={!canSubmit}>
+          Create account
+        </Button>
+        <AuthSocialButtons />
+        <p className="text-center text-sm text-[#5e5c57]">
+          Already have an account?{' '}
+          <Link to="/login" className="font-medium text-[#1c1b19] underline-offset-4 hover:underline">
+            Sign in
+          </Link>
+        </p>
+      </form>
   )
 }

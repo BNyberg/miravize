@@ -10,7 +10,7 @@ metadata:
 
 # UI Styling Skill
 
-## Genki Tenki chrome (mandatory)
+## Miravize chrome (mandatory)
 
 Follow `.cursor/rules/page-layout.mdc` on every screen:
 
@@ -21,7 +21,7 @@ Follow `.cursor/rules/page-layout.mdc` on every screen:
 
 ## Product interaction (mandatory)
 
-Genki Tenki UI must follow `.cursor/rules/forms-and-destructive-actions.mdc`:
+Miravize UI must follow `.cursor/rules/forms-and-destructive-actions.mdc`:
 
 1. **Save** (and persist of an existing record) is disabled until the form is dirty vs the last snapshot. Create/Add/Start stay disabled until required fields are valid. Exception: the logged time-entry editor persists field changes immediately and description on Enter (no Save button).
 2. **Every delete/remove** uses a confirmation Dialog. No instant delete on click.

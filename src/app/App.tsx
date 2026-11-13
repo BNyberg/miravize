@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 
+import { AuthShell } from '@/components/auth/auth-shell'
 import { AppShell } from '@/components/layout/app-shell'
 import { ToastHost } from '@/components/ui/toast'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -40,7 +41,7 @@ export function App() {
   if (!isSupabaseConfigured) {
     return (
       <div className="mx-auto max-w-lg p-8">
-        <h1 className="mb-2 text-xl font-semibold">Genki Tenki</h1>
+        <h1 className="mb-2 text-xl font-semibold">Miravize</h1>
         <p className="text-sm text-muted-foreground">
           Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> in a{' '}
           <code>.env</code> file, then restart the dev server.
@@ -54,21 +55,15 @@ export function App() {
     <ToastHost />
     <Routes>
       <Route
-        path="/login"
         element={
           <Guest>
-            <LoginPage />
+            <AuthShell />
           </Guest>
         }
-      />
-      <Route
-        path="/signup"
-        element={
-          <Guest>
-            <SignupPage />
-          </Guest>
-        }
-      />
+      >
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+      </Route>
       <Route
         path="/invite/:token"
         element={

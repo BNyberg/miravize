@@ -1,14 +1,14 @@
 # Design System Master File
 
-> **LOGIC:** When building a specific page, first check `design-system/genki-tenki/pages/[page-name].md`.
+> **LOGIC:** When building a specific page, first check `design-system/miravize/pages/[page-name].md`.
 > If that file exists, its rules **override** this Master file.
 > If not, follow the rules below.
 >
-> **Phase:** Graphite Ledger tokens apply across the app. The Timer page is a week time grid. The Projects page follows `design-system/genki-tenki/pages/projects.md`. The app shell uses the collapsible rail below. The running banner, timesheet, requests, settings, and authentication layouts are not migrated yet. Do not restore the previous mint canvas, orange CTA, Plus Jakarta Sans, 12px cards, hover lift, or modal blur. Do not rebuild the chronograph.
+> **Phase:** Graphite Ledger tokens apply across the app. The Timer page is a week time grid. The Projects page follows `design-system/miravize/pages/projects.md`. The app shell uses the collapsible rail below. The running banner, timesheet, requests, settings, and authentication layouts are not migrated yet. Do not restore the previous mint canvas, orange CTA, Plus Jakarta Sans, 12px cards, hover lift, or modal blur. Do not rebuild the chronograph.
 
 ---
 
-**Project:** Genki Tenki
+**Project:** Miravize
 **Direction:** Graphite Ledger, with Ink Editorial restraint
 **Updated:** 2026-11-12
 

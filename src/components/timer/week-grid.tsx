@@ -1,10 +1,14 @@
+import { MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon } from '@heroicons/react/24/outline'
 import { format, isToday, startOfDay } from 'date-fns'
 import { useEffect, useRef, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDuration } from '@/lib/splits'
 import type { Client, ProjectClient, TimeEntry } from '@/types'
 
-import { DAY_MS, HOUR_PX, dayBounds, heightFor, inkOn, layoutDay, snap, topFor } from './week-layout'
+import { useTimerGridZoom } from './use-timer-grid-zoom'
+import { DAY_MS, DEFAULT_HOUR_PX, dayBounds, heightFor, hourPxFor, inkOn, layoutDay, snap, topFor } from './week-layout'
 
 type Draft = { day: number; startY: number; endY: number }
 type Preview = { id: string; start: number; end: number }
@@ -39,6 +43,7 @@ function WeekGrid({
   days,
   entries,
   now,
+  focusNowAt = 0,
   clients,
   projectClients,
   onCreate,
@@ -49,6 +54,7 @@ function WeekGrid({
   days: Date[]
   entries: TimeEntry[]
   now: number
+  focusNowAt?: number
   clients: Client[]
   projectClients: ProjectClient[]
   onCreate: (start: Date, end: Date, point: { x: number; y: number }) => void
@@ -57,6 +63,12 @@ function WeekGrid({
   onDescribe: (id: string, description: string) => void
 }) {
   const scroller = useRef<HTMLDivElement>(null)
+  const { zoom, canZoomOut, canZoomIn, canReset, zoomOut, zoomIn, reset } = useTimerGridZoom()
+  const hourPx = hourPxFor(zoom)
+  const hourPxRef = useRef(hourPx)
+  const alignedNowAt = useRef(0)
+  const nowRef = useRef(now)
+  nowRef.current = now
   const [draft, setDraft] = useState<Draft | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const gesture = useRef<{
@@ -74,14 +86,39 @@ function WeekGrid({
   useEffect(() => {
     const node = scroller.current
     if (!node) return
-    node.scrollTop = 7 * HOUR_PX
-  }, [days[0]?.toISOString(), days.length])
+    const previous = hourPxRef.current
+    if (previous !== hourPx) {
+      node.scrollTop = (node.scrollTop / previous) * hourPx
+      hourPxRef.current = hourPx
+      return
+    }
+    hourPxRef.current = hourPx
+    if (focusNowAt > 0 && focusNowAt !== alignedNowAt.current) return
+    node.scrollTop = 7 * hourPx
+  }, [days[0]?.toISOString(), days.length, hourPx, focusNowAt])
+
+  useEffect(() => {
+    if (focusNowAt === 0) return
+    alignedNowAt.current = focusNowAt
+    const frame = requestAnimationFrame(() => {
+      const node = scroller.current
+      if (!node) return
+      const hours = node.querySelector<HTMLElement>('.week-hours')
+      const offset = hours?.offsetTop ?? 0
+      const px = hourPxRef.current
+      const y = topFor(nowRef.current, new Date(nowRef.current), px)
+      const max = Math.max(0, node.scrollHeight - node.clientHeight)
+      node.scrollTop = Math.min(max, Math.max(0, offset + y - node.clientHeight / 2))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusNowAt])
 
   useEffect(() => {
     function move(event: PointerEvent) {
       const active = gesture.current
       if (!active) return
-      const delta = snap(((event.clientY - active.pointerY) / HOUR_PX) * 60 * 60 * 1000)
+      const px = hourPxRef.current
+      const delta = snap(((event.clientY - active.pointerY) / px) * 60 * 60 * 1000)
       if (Math.abs(event.clientY - active.pointerY) > 3) active.moved = true
       if (active.kind === 'create') {
         const column = columnAt(event)
@@ -116,8 +153,8 @@ function WeekGrid({
         const column = columnAt(event)
         const day = column ? Number(column.dataset.day) : active.day
         const y = column ? event.clientY - column.getBoundingClientRect().top : active.endY
-        const start = yToTime(day, Math.min(active.startY, y))
-        const end = yToTime(day, Math.max(active.startY, y))
+        const start = yToTime(day, Math.min(active.startY, y), hourPxRef.current)
+        const end = yToTime(day, Math.max(active.startY, y), hourPxRef.current)
         setDraft(null)
         if (end.getTime() - start.getTime() >= 15 * 60 * 1000) {
           onCreate(start, end, { x: event.clientX, y: event.clientY })
@@ -131,7 +168,7 @@ function WeekGrid({
         onEdit(entry, { x: event.clientX, y: event.clientY })
         return
       }
-      const delta = snap(((event.clientY - active.pointerY) / HOUR_PX) * 60 * 60 * 1000)
+      const delta = snap(((event.clientY - active.pointerY) / hourPxRef.current) * 60 * 60 * 1000)
       if (active.kind === 'resize') {
         const end = Math.max(active.originStart + 15 * 60 * 1000, active.originEnd + delta)
         onMove(entry.id, new Date(active.originStart), new Date(end))
@@ -161,6 +198,8 @@ function WeekGrid({
   })
 
   return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    <TooltipProvider delayDuration={1000} skipDelayDuration={0} disableHoverableContent>
     <div ref={scroller} className="min-h-0 flex-1 overflow-auto border-y border-border">
       <div className="grid" style={{ gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))` }}>
         <div className="sticky top-0 z-30 border-b border-border bg-background" />
@@ -179,12 +218,12 @@ function WeekGrid({
             </div>
           </div>
         ))}
-        <div className="relative" style={{ height: 24 * HOUR_PX }}>
+        <div className="relative" style={{ height: 24 * hourPx }}>
           {Array.from({ length: 24 }, (_, hour) => (
             <span
               key={hour}
               className="absolute right-1.5 font-mono text-[10px] tabular-nums text-muted-foreground"
-              style={{ top: hour * HOUR_PX + 4 }}
+              style={{ top: hour * hourPx + 4 }}
             >
               {String(hour).padStart(2, '0')}
             </span>
@@ -197,7 +236,7 @@ function WeekGrid({
               key={key}
               data-day={key}
               className="week-hours relative border-l border-border"
-              style={{ height: 24 * HOUR_PX }}
+              style={{ height: 24 * hourPx }}
               onPointerDown={(event) => {
                 if (event.button !== 0) return
                 if ((event.target as HTMLElement).closest('[data-entry]')) return
@@ -216,7 +255,7 @@ function WeekGrid({
               }}
             >
               {isToday(day) ? (
-                <div className="pointer-events-none absolute inset-x-0 z-20 h-px bg-primary" style={{ top: topFor(now, day) }}>
+                <div className="pointer-events-none absolute inset-x-0 z-20 h-px bg-primary" style={{ top: topFor(now, day, hourPx) }}>
                   <span className="absolute -left-px -top-[3px] size-1.5 bg-primary" />
                 </div>
               ) : null}
@@ -232,22 +271,28 @@ function WeekGrid({
               {layoutDay(shown, day, now).map((slice) => {
                 const running = slice.entry.stopped_at == null
                 const color = slice.entry.project?.color || '#5E5C57'
+                const label = entryLabel(slice.entry, clients, projectClients)
                 return (
+                  <Tooltip key={slice.entry.id}>
+                    <TooltipTrigger asChild>
                   <div
-                    key={slice.entry.id}
                     data-entry={slice.entry.id}
                     role="button"
                     tabIndex={0}
-                    className={dayView ? 'absolute z-10 overflow-hidden px-1.5 text-left' : 'absolute z-10 overflow-hidden px-1.5 py-1 text-left'}
+                    className={
+                      dayView
+                        ? 'absolute z-10 overflow-hidden px-1.5 text-left transition-[filter] duration-75 hover:brightness-90'
+                        : 'absolute z-10 overflow-hidden px-1.5 py-1 text-left transition-[filter] duration-75 hover:brightness-90'
+                    }
                     style={{
-                      top: topFor(slice.start, day),
-                      height: heightFor(slice.start, slice.end),
+                      top: topFor(slice.start, day, hourPx),
+                      height: heightFor(slice.start, slice.end, hourPx),
                       left: `calc(${(slice.lane / slice.lanes) * 100}% + 2px)`,
                       width: `calc(${100 / slice.lanes}% - 4px)`,
-                      background: color,
-                      color: inkOn(color),
+                      background: running ? `color-mix(in srgb, ${color} 42%, transparent)` : color,
+                      color: running ? color : inkOn(color),
                       borderRadius: 4,
-                      boxShadow: running ? 'inset 2px 0 0 var(--running)' : undefined,
+                      border: running ? `1px dotted ${color}` : undefined,
                       cursor: running ? 'default' : 'grab',
                     }}
                     onPointerDown={(event) => {
@@ -318,12 +363,68 @@ function WeekGrid({
                       />
                     )}
                   </div>
+                    </TooltipTrigger>
+                    {label ? <TooltipContent>{label}</TooltipContent> : null}
+                  </Tooltip>
                 )
               })}
             </div>
           )
         })}
       </div>
+    </div>
+    </TooltipProvider>
+    <TooltipProvider delayDuration={0} skipDelayDuration={0} disableHoverableContent>
+      <div className="absolute bottom-3 right-3 z-40 flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label="Zoom out"
+              disabled={!canZoomOut}
+              onClick={zoomOut}
+            >
+              <MagnifyingGlassMinusIcon aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Zoom out</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Reset zoom"
+              disabled={!canReset}
+              onClick={reset}
+            >
+              Reset
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Reset zoom</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label="Zoom in"
+              disabled={!canZoomIn}
+              onClick={zoomIn}
+            >
+              <MagnifyingGlassPlusIcon aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Zoom in</TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
     </div>
   )
 }
@@ -341,9 +442,10 @@ function DescriptionField({
     <input
       key={value}
       aria-label="Description"
+      data-hover="wash"
       defaultValue={value}
       placeholder={placeholder || 'Description'}
-      className="min-w-0 flex-1 bg-transparent text-[11px] leading-tight outline-none transition-colors duration-75 hover:bg-muted placeholder:text-current placeholder:opacity-60"
+      className="min-w-0 flex-1 rounded-[2px] bg-transparent px-1 text-[11px] leading-tight outline-none transition-colors duration-75 hover:bg-[color-mix(in_srgb,black_8%,transparent)] placeholder:text-current placeholder:opacity-60"
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation()
@@ -364,8 +466,8 @@ function columnAt(event: PointerEvent) {
   return node?.closest<HTMLElement>('[data-day]') ?? null
 }
 
-function yToTime(day: number, y: number) {
-  const minutes = snap((y / HOUR_PX) * 60 * 60 * 1000)
+function yToTime(day: number, y: number, hourPx = DEFAULT_HOUR_PX) {
+  const minutes = snap((y / hourPx) * 60 * 60 * 1000)
   return new Date(day + Math.min(Math.max(minutes, 0), DAY_MS - 15 * 60 * 1000))
 }
 

@@ -1,6 +1,7 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import * as React from 'react'
 
+import { filterMenuNodes, MenuFilterField } from '@/lib/menu-filter'
 import { cn } from '@/lib/utils'
 
 const DropdownMenu = DropdownMenuPrimitive.Root
@@ -10,18 +11,44 @@ const DropdownMenuGroup = DropdownMenuPrimitive.Group
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  children,
+  filter = true,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & { filter?: boolean }) {
+  const [query, setQuery] = React.useState('')
+  const filtered = filterMenuNodes(children, query, {
+    item: DropdownMenuItem,
+    group: DropdownMenuGroup,
+    label: DropdownMenuLabel,
+    separator: DropdownMenuSeparator,
+  })
+  const empty = query.trim() !== '' && filtered.itemCount === 0
+
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          'z-50 min-w-40 overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground',
+          filter
+            ? 'z-50 flex max-h-72 min-w-40 flex-col overflow-hidden rounded-lg border border-border bg-popover p-0 text-popover-foreground'
+            : 'z-50 min-w-40 overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground',
           className,
         )}
         {...props}
-      />
+        onOpenAutoFocus={(event) => {
+          if (filter) event.preventDefault()
+          props.onOpenAutoFocus?.(event)
+        }}
+      >
+        {filter ? <MenuFilterField value={query} onChange={setQuery} /> : null}
+        {filter ? (
+          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+            {empty ? <DropdownMenuItem disabled>No matches</DropdownMenuItem> : filtered.children}
+          </div>
+        ) : (
+          children
+        )}
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   )
 }

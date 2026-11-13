@@ -10,7 +10,6 @@ import {
   ListChecks,
   Moon,
   SignOut,
-  SquaresFour,
   Sun,
   Table,
 } from '@phosphor-icons/react'
@@ -18,6 +17,7 @@ import { useTheme } from 'next-themes'
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
+import { BrandMark } from '@/components/brand-mark'
 import { useSidebarCollapsed } from '@/components/layout/use-sidebar-collapsed'
 import { RunningBanner } from '@/components/layout/running-banner'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -127,7 +127,7 @@ function UserFooter({
               {initials}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top">
+          <DropdownMenuContent align="start" side="top" filter={false}>
             <DropdownMenuItem onSelect={() => setTheme(current === 'dark' ? 'light' : 'dark')}>
               {current === 'dark' ? (
                 <Sun aria-hidden="true" className="size-4" />
@@ -151,7 +151,7 @@ function UserFooter({
                 <DotsThree aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top">
+            <DropdownMenuContent align="end" side="top" filter={false}>
               <DropdownMenuItem onSelect={onSignOut}>
                 <SignOut aria-hidden="true" className="size-4" />
                 Sign out
@@ -189,7 +189,7 @@ export function AppShell() {
         <Button
           variant="outline"
           size="icon"
-          className="absolute top-[18px] right-0 z-20 h-6 w-6 min-h-6 min-w-6 translate-x-1/2 rounded-md border-sidebar-border bg-card"
+          className="absolute right-0 bottom-7 z-20 h-6 w-6 min-h-6 min-w-6 translate-x-1/2 rounded-md border-sidebar-border bg-card"
           aria-expanded={!collapsed}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           onClick={toggle}
@@ -202,9 +202,9 @@ export function AppShell() {
         </Button>
         <div className="h-full overflow-hidden">
         <div className="flex h-full w-60 min-w-60 flex-col px-4 pb-4 pt-3">
-          <div className="mb-6 flex h-9 items-center gap-2 px-2 font-semibold">
-            <SquaresFour aria-hidden="true" className="size-5 shrink-0 text-primary" />
-            <span className="sidebar-fade truncate">Genki Tenki</span>
+          <div className="mb-6 flex h-9 items-center gap-1.5 text-[18px] font-semibold">
+            <BrandMark className="size-8" />
+            <span className="sidebar-fade truncate">Miravize</span>
           </div>
           <NavItems />
           <UserFooter email={user?.email} onSignOut={() => void signOut()} />
@@ -220,14 +220,20 @@ export function AppShell() {
               </Button>
             </SheetTrigger>
             <SheetContent>
-              <div className="mb-6 font-semibold">Genki Tenki</div>
+              <div className="mb-6 flex items-center gap-1.5 text-[18px] font-semibold">
+                <BrandMark className="size-8" />
+                Miravize
+              </div>
               <div className="flex min-h-0 flex-1 flex-col">
                 <NavItems onNavigate={() => setOpen(false)} />
                 <UserFooter email={user?.email} onSignOut={() => void signOut()} />
               </div>
             </SheetContent>
           </Sheet>
-          <span className="font-semibold">Genki Tenki</span>
+          <span className="flex items-center gap-1.5 text-[18px] font-semibold">
+            <BrandMark className="size-8" />
+            Miravize
+          </span>
           <div className="ml-auto">
             <ThemeToggle />
           </div>

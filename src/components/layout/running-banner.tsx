@@ -155,7 +155,7 @@ export function RunningBanner() {
           aria-label="Description"
           defaultValue={running.description}
           placeholder="Description"
-          className="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none transition-colors duration-75 hover:bg-muted placeholder:text-muted-foreground"
+          className="h-9 min-w-0 flex-1 rounded-md bg-transparent px-1 text-sm outline-none transition-colors duration-75 hover:bg-muted placeholder:text-muted-foreground"
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault()

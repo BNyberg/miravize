@@ -1,4 +1,12 @@
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, PlayIcon, StopIcon } from '@heroicons/react/24/outline'
+import {
+  ChevronDoubleLeftIcon,
+  ChevronDoubleRightIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  PlayIcon,
+  StopIcon,
+} from '@heroicons/react/24/outline'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addDays,
@@ -14,9 +22,10 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 
 import { EntryEditor, EntryMetaChips, clientMode, type Draft, type EntrySaveInput } from '@/components/timer/entry-editor'
+import { useTimerSpan } from '@/components/timer/use-timer-span'
 import { WeekGrid } from '@/components/timer/week-grid'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,17 +75,20 @@ export function TimerPage() {
   const catalog = useCatalog()
   const narrow = useNarrow()
   const [anchor, setAnchor] = useState(() => new Date())
-  const [span, setSpan] = useState<1 | 5 | 7>(5)
+  const [shiftDays, setShiftDays] = useState(0)
+  const [span, setSpan] = useTimerSpan()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [quickFilter, setQuickFilter] = useState('')
+  const [focusNowAt, setFocusNowAt] = useState(0)
   const qc = useQueryClient()
   const { data: running } = useRunningTimer()
   const now = useNow(Boolean(running))
 
   const dayView = narrow || span === 1
   const count = dayView ? 1 : span
-  const rangeStart = dayView ? startOfDay(anchor) : startOfWeek(anchor, { weekStartsOn: 1 })
+  const rangeStart = dayView
+    ? startOfDay(anchor)
+    : addDays(startOfWeek(anchor, { weekStartsOn: 1 }), shiftDays)
   const days = eachDayOfInterval({ start: rangeStart, end: addDays(rangeStart, count - 1) })
   const rangeEnd = addDays(rangeStart, count)
 
@@ -237,6 +249,7 @@ export function TimerPage() {
         clientIds: input.clientIds,
       }),
     onSuccess: async () => {
+      setDraft(null)
       setError(null)
       await refresh()
     },
@@ -250,9 +263,11 @@ export function TimerPage() {
   const weekNumber = getISOWeek(rangeStart)
   const label = dayView
     ? `${isToday(rangeStart) ? 'Today · ' : ''}${format(rangeStart, 'EEE d MMM')}`
-    : isSameWeek(rangeStart, new Date(), { weekStartsOn: 1 })
-      ? `This week · W${weekNumber}`
-      : `${format(rangeStart, 'd MMM')} – ${format(days[days.length - 1]!, 'd MMM')} · W${weekNumber}`
+    : shiftDays !== 0
+      ? `${format(rangeStart, 'EEE d MMM')} – ${format(days[days.length - 1]!, 'EEE d MMM')} · W${weekNumber}`
+      : isSameWeek(rangeStart, new Date(), { weekStartsOn: 1 })
+        ? `This week · W${weekNumber}`
+        : `${format(rangeStart, 'd MMM')} – ${format(days[days.length - 1]!, 'd MMM')} · W${weekNumber}`
 
   const quickProjects = catalog.projects.filter((project) => (isAll ? true : project.workspace_id === workspaceId))
   const quickActivityGroups = (() => {
@@ -279,15 +294,7 @@ export function TimerPage() {
     if (unassigned.length > 0) groups.push({ id: 'unassigned', name: '', rows: unassigned })
     return groups
   })()
-  const quickQuery = quickFilter.trim().toLowerCase()
-  const quickMatches = (value: string) => !quickQuery || value.toLowerCase().includes(quickQuery)
-  const visibleProjects = quickProjects.filter((project) => quickMatches(project.name))
-  const visibleActivityGroups = quickActivityGroups
-    .map((group) => ({ ...group, rows: group.rows.filter((row) => quickMatches(row.activity.name)) }))
-    .filter((group) => group.rows.length > 0)
-  const showProjectSection = quickQuery ? visibleProjects.length > 0 : true
-  const showActivitySection = visibleActivityGroups.length > 0
-  const quickNoMatches = Boolean(quickQuery) && !showProjectSection && !showActivitySection
+  const showActivitySection = quickActivityGroups.length > 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -330,7 +337,14 @@ export function TimerPage() {
         >
           <ChevronLeftIcon aria-hidden="true" />
         </Button>
-        <Button variant="outline" onClick={() => setAnchor(new Date())}>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setAnchor(new Date())
+            setShiftDays(0)
+            setFocusNowAt((current) => current + 1)
+          }}
+        >
           Today
         </Button>
         <Button
@@ -341,7 +355,60 @@ export function TimerPage() {
         >
           <ChevronRightIcon aria-hidden="true" />
         </Button>
-        <p className="shrink-0 text-sm">{label}</p>
+        <div className="flex h-9 shrink-0 flex-col items-center justify-center">
+          <p className="text-sm leading-none">{label}</p>
+          {dayView ? null : (
+            <TooltipProvider delayDuration={0} disableHoverableContent>
+            <div className="mt-0.5 flex items-center justify-center text-xs leading-none text-muted-foreground">
+              {(
+                [
+                  { days: -3, label: '3 days back', icon: ChevronDoubleLeftIcon },
+                  { days: -1, label: '1 day back', icon: ChevronLeftIcon },
+                ] as const
+              ).map((step) => (
+                <Tooltip key={step.days}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="rounded-sm p-0.5 hover:bg-muted hover:text-foreground"
+                      aria-label={`${step.label}. Today returns to this week.`}
+                      onClick={() => setShiftDays((current) => current + step.days)}
+                    >
+                      <step.icon className="size-3" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {step.label}. Today returns to this week.
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+              <span className="px-1">Shift dates</span>
+              {(
+                [
+                  { days: 1, label: '1 day forward', icon: ChevronRightIcon },
+                  { days: 3, label: '3 days forward', icon: ChevronDoubleRightIcon },
+                ] as const
+              ).map((step) => (
+                <Tooltip key={step.days}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="rounded-sm p-0.5 hover:bg-muted hover:text-foreground"
+                      aria-label={`${step.label}. Today returns to this week.`}
+                      onClick={() => setShiftDays((current) => current + step.days)}
+                    >
+                      <step.icon className="size-3" aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {step.label}. Today returns to this week.
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+            </TooltipProvider>
+          )}
+        </div>
         {running ? (
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
@@ -363,7 +430,7 @@ export function TimerPage() {
               aria-label="Description"
               defaultValue={running.description}
               placeholder="Description"
-              className="h-8 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none transition-colors duration-75 hover:bg-muted placeholder:text-muted-foreground"
+              className="h-8 min-w-0 flex-1 rounded-md bg-transparent px-1 text-sm outline-none transition-colors duration-75 hover:bg-muted placeholder:text-muted-foreground"
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
@@ -387,22 +454,38 @@ export function TimerPage() {
             </Button>
           ) : (
             <div className="flex">
-              <Button
-                className="rounded-r-none"
-                disabled={isAll || quickStart.isPending}
-                onClick={() =>
-                  quickStart.mutate({
-                    workspaceId,
-                    projectId: null,
-                    billable: true,
-                    description: '',
-                  })
-                }
-              >
-                <PlayIcon aria-hidden="true" />
-                Start
-              </Button>
-              <DropdownMenu onOpenChange={(open) => { if (!open) setQuickFilter('') }}>
+              {isAll ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-help">
+                      <Button className="pointer-events-none rounded-r-none" disabled>
+                        <PlayIcon aria-hidden="true" />
+                        Start
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Switch to a single workspace,<br/>or use Quick start to the right.
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button
+                  className="rounded-r-none"
+                  disabled={quickStart.isPending}
+                  onClick={() =>
+                    quickStart.mutate({
+                      workspaceId,
+                      projectId: null,
+                      billable: true,
+                      description: '',
+                    })
+                  }
+                >
+                  <PlayIcon aria-hidden="true" />
+                  Start
+                </Button>
+              )}
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     className="rounded-l-none border-l border-primary-foreground/30 px-2"
@@ -412,31 +495,12 @@ export function TimerPage() {
                     <ChevronDownIcon aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="flex max-h-96 w-64 flex-col overflow-hidden p-0">
-                <div className="border-b border-border p-1">
-                  <input
-                    value={quickFilter}
-                    onChange={(event) => setQuickFilter(event.target.value)}
-                    placeholder="Filter"
-                    aria-label="Filter"
-                    autoFocus
-                    className="h-8 w-full rounded-md bg-transparent px-2 text-sm outline-none transition-colors duration-75 hover:bg-muted placeholder:text-muted-foreground"
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Escape') event.stopPropagation()
-                    }}
-                  />
-                </div>
-                <div className="min-h-0 max-h-[21.5rem] flex-1 overflow-y-auto p-1">
-                {quickNoMatches ? (
-                  <DropdownMenuItem disabled>No matches</DropdownMenuItem>
-                ) : null}
-                {showProjectSection ? (
-                  <>
+                <DropdownMenuContent align="end" className="w-64">
                     <DropdownMenuLabel>Projects</DropdownMenuLabel>
-                    {visibleProjects.length === 0 ? (
+                    {quickProjects.length === 0 ? (
                       <DropdownMenuItem disabled>No projects yet</DropdownMenuItem>
                     ) : (
-                      visibleProjects.map((project) => (
+                      quickProjects.map((project) => (
                         <DropdownMenuItem
                           key={project.id}
                           onSelect={() =>
@@ -453,12 +517,10 @@ export function TimerPage() {
                         </DropdownMenuItem>
                       ))
                     )}
-                  </>
-                ) : null}
                 {showActivitySection ? (
                   <>
-                    {showProjectSection ? <DropdownMenuSeparator /> : null}
-                    {visibleActivityGroups.map((group) => (
+                    <DropdownMenuSeparator />
+                    {quickActivityGroups.map((group) => (
                       <DropdownMenuGroup key={group.id}>
                         {group.name ? <DropdownMenuLabel>{group.name}</DropdownMenuLabel> : null}
                         {group.rows.map(({ activity, project }) => (
@@ -486,7 +548,6 @@ export function TimerPage() {
                     ))}
                   </>
                 ) : null}
-                </div>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -498,6 +559,7 @@ export function TimerPage() {
         days={days}
         entries={blocks}
         now={now}
+        focusNowAt={focusNowAt}
         clients={catalog.clients}
         projectClients={catalog.projectClients}
         onCreate={(start, end, point) =>
@@ -531,7 +593,7 @@ export function TimerPage() {
         activities={catalog.activities}
         clients={catalog.clients}
         projectClients={catalog.projectClients}
-        pending={save.isPending || remove.isPending}
+        pending={save.isPending || remove.isPending || quickStart.isPending}
         onClose={() => setDraft(null)}
         onSave={(input) => save.mutate(input)}
         onPatch={async (input) => {
@@ -539,6 +601,7 @@ export function TimerPage() {
           await refresh()
         }}
         onDelete={(id) => remove.mutate(id)}
+        onContinue={(input) => quickStart.mutate(input)}
       />
     </div>
   )

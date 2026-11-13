@@ -1,0 +1,17 @@
+.auth-sweep {
+  overflow: hidden;
+  animation: auth-sweep 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-sweep-delay {
+  animation-delay: 50ms;
+}
+
+@keyframes auth-sweep {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}

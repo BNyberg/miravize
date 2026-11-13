@@ -3,6 +3,7 @@ import { Check } from '@phosphor-icons/react'
 import * as SelectPrimitive from '@radix-ui/react-select'
 import * as React from 'react'
 
+import { filterMenuNodes, MenuFilterField } from '@/lib/menu-filter'
 import { cn } from '@/lib/utils'
 
 const Select = SelectPrimitive.Root
@@ -37,18 +38,38 @@ function SelectContent({
   position = 'popper',
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  const [query, setQuery] = React.useState('')
+  const filtered = filterMenuNodes(children, query, {
+    item: SelectItem,
+    group: SelectGroup,
+  })
+  const empty = query.trim() !== '' && filtered.itemCount === 0
+
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         position={position}
         sideOffset={6}
         className={cn(
-          'relative z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground',
+          'relative z-50 flex max-h-72 min-w-[var(--radix-select-trigger-width)] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground',
           className,
         )}
         {...props}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          props.onOpenAutoFocus?.(event)
+        }}
       >
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+        <MenuFilterField value={query} onChange={setQuery} />
+        <SelectPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto p-1">
+          {empty ? (
+            <SelectItem value="__no-matches" disabled>
+              No matches
+            </SelectItem>
+          ) : (
+            filtered.children
+          )}
+        </SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   )
