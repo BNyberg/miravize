@@ -1,20 +1,36 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { EllipsisHorizontalIcon, InformationCircleIcon, PencilIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toast'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
 import { splitsTotal, type SplitShare } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-import type { Client, Project } from '@/types'
+import type { Activity, Client, Project, ProjectAlias, ProjectClient } from '@/types'
 
 const PRESETS: { label: string; parts: number[] }[] = [
   { label: '50/50', parts: [50, 50] },
@@ -40,7 +56,360 @@ const SWATCHES = [
 const DEFAULT_COLOR = '#1F7A4D'
 const CURRENCIES = ['SEK', 'EUR', 'USD', 'GBP', 'NOK', 'DKK'] as const
 
-type Section = 'projects' | 'clients' | 'tags' | 'aliases'
+type Section = 'projects' | 'clients'
+
+function failMessage(err: unknown) {
+  const rec = err && typeof err === 'object' ? (err as Record<string, unknown>) : null
+  const message =
+    rec && typeof rec.message === 'string' ? rec.message : err instanceof Error ? err.message : ''
+  const details = rec && typeof rec.details === 'string' ? rec.details : ''
+  const hint = rec && typeof rec.hint === 'string' ? rec.hint : ''
+  const code = rec && typeof rec.code === 'string' ? rec.code : ''
+  const joined = [message, details, hint].filter(Boolean).join(' ')
+  if (code === '23505' || /projects_workspace_id_name|duplicate key value.*projects/i.test(joined)) {
+    return 'A project with this name already exists.'
+  }
+  return joined || 'Try again.'
+}
+
+async function deleteActivity(id: string, onSaved: () => void) {
+  const { error } = await supabase.from('activities').delete().eq('id', id)
+  if (error) {
+    toast({ tone: 'error', title: 'Could not delete activity', description: failMessage(error) })
+    return
+  }
+  onSaved()
+}
+
+async function renameActivity(id: string, name: string, onSaved: () => void) {
+  const { error } = await supabase.from('activities').update({ name }).eq('id', id)
+  if (error) {
+    toast({ tone: 'error', title: 'Could not rename activity', description: failMessage(error) })
+    return false
+  }
+  onSaved()
+  return true
+}
+
+async function moveActivity(
+  id: string,
+  patch: { project_id: string } | { client_id: string },
+  onSaved: () => void,
+) {
+  const { error } = await supabase.from('activities').update(patch).eq('id', id)
+  if (error) {
+    toast({ tone: 'error', title: 'Could not move activity', description: failMessage(error) })
+    return false
+  }
+  onSaved()
+  return true
+}
+
+function RemoveActivityButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClick} aria-label="Remove activity">
+      <XMarkIcon />
+    </Button>
+  )
+}
+
+function ActivityRowMenu({ onRename, onMove }: { onRename: () => void; onMove?: () => void }) {
+  return (
+    <div className="ml-auto flex shrink-0 items-center">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" aria-label="Activity actions">
+            <EllipsisHorizontalIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={onRename}>Rename</DropdownMenuItem>
+          {onMove ? <DropdownMenuItem onSelect={onMove}>Move</DropdownMenuItem> : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+function ActivityRenameDialog({
+  activity,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  activity: Activity | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSaved: () => void
+}) {
+  const [draft, setDraft] = useState<{ id: string; name: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const name = open && activity ? (draft?.id === activity.id ? draft.name : activity.name) : ''
+  const trimmed = name.trim()
+  const dirty = Boolean(activity) && trimmed.length > 0 && trimmed !== activity.name.trim()
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setDraft(null)
+          setSaving(false)
+        }
+        onOpenChange(next)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename activity</DialogTitle>
+          <DialogDescription>Logged time stays on this activity.</DialogDescription>
+        </DialogHeader>
+        <Input
+          value={name}
+          onChange={(e) => {
+            if (!activity) return
+            setDraft({ id: activity.id, name: e.target.value })
+          }}
+          placeholder="Activity name"
+          autoFocus
+        />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!dirty || saving}
+            loading={saving}
+            onClick={() => {
+              if (!activity || !dirty) return
+              setSaving(true)
+              void renameActivity(activity.id, trimmed, onSaved).then((ok) => {
+                setSaving(false)
+                if (ok) onOpenChange(false)
+              })
+            }}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ActivityMoveDialog({
+  activity,
+  projects,
+  clients,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  activity: Activity | null
+  projects: Project[]
+  clients: Client[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSaved: () => void
+}) {
+  const [targetId, setTargetId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const clientActivity = Boolean(activity?.client_id)
+  const options = clientActivity
+    ? clients.filter((client) => client.id !== activity?.client_id)
+    : projects.filter((project) => project.id !== activity?.project_id)
+  const ready = Boolean(targetId) && options.some((option) => option.id === targetId)
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setTargetId('')
+          setSaving(false)
+        }
+        onOpenChange(next)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Move {activity?.name ?? 'activity'}</DialogTitle>
+          <DialogDescription>
+            {clientActivity
+              ? 'Move this client activity to another client. It stays on the same project.'
+              : 'Move this project activity to another project.'}
+          </DialogDescription>
+        </DialogHeader>
+        <Select value={targetId || undefined} onValueChange={setTargetId}>
+          <SelectTrigger>
+            <SelectValue placeholder={clientActivity ? 'Client' : 'Project'} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!ready || saving || !activity}
+            loading={saving}
+            onClick={() => {
+              if (!activity || !ready) return
+              setSaving(true)
+              const patch = clientActivity ? { client_id: targetId } : { project_id: targetId }
+              void moveActivity(activity.id, patch, onSaved).then((ok) => {
+                setSaving(false)
+                if (ok) onOpenChange(false)
+              })
+            }}
+          >
+            Move
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DraftRenameDialog({
+  current,
+  open,
+  onOpenChange,
+  onSave,
+  title = 'Rename activity',
+  placeholder = 'Activity name',
+}: {
+  current: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSave: (next: string) => boolean | Promise<boolean>
+  title?: string
+  placeholder?: string
+}) {
+  const [draft, setDraft] = useState<{ current: string; name: string } | null>(null)
+  const name = open && current != null ? (draft?.current === current ? draft.name : current) : ''
+  const trimmed = name.trim()
+  const dirty = current != null && trimmed.length > 0 && trimmed !== current.trim()
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setDraft(null)
+        onOpenChange(next)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <Input
+          value={name}
+          onChange={(e) => {
+            if (current == null) return
+            setDraft({ current, name: e.target.value })
+          }}
+          placeholder={placeholder}
+          autoFocus
+        />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!dirty}
+            onClick={() => {
+              if (!dirty) return
+              void Promise.resolve(onSave(trimmed)).then((ok) => {
+                if (ok) onOpenChange(false)
+              })
+            }}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AliasChip({
+  shortcut,
+  canManage,
+  onRename,
+  onDelete,
+}: {
+  shortcut: string
+  canManage: boolean
+  onRename: () => void
+  onDelete: () => void
+}) {
+  return (
+    <Badge variant="secondary" className="group gap-0.5 font-mono">
+      {shortcut}
+      {canManage ? (
+        <span className="inline-flex items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+          <button
+            type="button"
+            className="inline-flex size-4 items-center justify-center rounded-sm hover:bg-background/60"
+            aria-label={`Rename ${shortcut}`}
+            onClick={onRename}
+          >
+            <PencilIcon className="size-3" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex size-4 items-center justify-center rounded-sm hover:bg-background/60"
+            aria-label={`Delete ${shortcut}`}
+            onClick={onDelete}
+          >
+            <XMarkIcon className="size-3" />
+          </button>
+        </span>
+      ) : null}
+    </Badge>
+  )
+}
+
+function ConfirmDeleteDialog({
+  name,
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  name: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-bold text-destructive">Delete {name}?</DialogTitle>
+          <DialogDescription>This action is irreversible.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" variant="destructive" disabled={!name} onClick={onConfirm}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 export function ProjectsPage() {
   const { workspaceId, isAll, canManage } = useWorkspace()
@@ -85,8 +454,6 @@ export function ProjectsPage() {
             [
               ['projects', 'Projects'],
               ['clients', 'Clients'],
-              ['tags', 'Tags'],
-              ['aliases', 'Aliases'],
             ] as const
           ).map(([value, text]) => (
             <button
@@ -136,28 +503,6 @@ export function ProjectsPage() {
           workspaceId={workspaceId}
         />
       ) : null}
-      {section === 'tags' ? (
-        <NameList
-          canManage={canManage}
-          label="Tag name"
-          items={catalog.tags.map((tag) => tag.name)}
-          onCreate={async (name) => {
-            if (!needWorkspace()) return
-            const { error: err } = await supabase.from('tags').insert({ workspace_id: workspaceId, name })
-            if (err) throw err
-            await refresh()
-          }}
-        />
-      ) : null}
-      {section === 'aliases' ? (
-        <AliasEditor
-          canManage={canManage}
-          catalog={catalog}
-          needWorkspace={needWorkspace}
-          workspaceId={workspaceId}
-          onSaved={() => void refresh()}
-        />
-      ) : null}
     </div>
   )
 }
@@ -183,29 +528,47 @@ function ClientEditor({
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [activityName, setActivityName] = useState('')
   const [activityProjectId, setActivityProjectId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [snapshot, setSnapshot] = useState({ name: '', billable: true, overrides: {} as Record<string, string> })
+  const [pendingActivity, setPendingActivity] = useState<{ id: string; name: string } | null>(null)
+  const [renaming, setRenaming] = useState<Activity | null>(null)
+  const [moving, setMoving] = useState<Activity | null>(null)
   const qc = useQueryClient()
 
   function load(client?: Client) {
-    setEditing(client ?? null)
-    setName(client?.name ?? '')
-    setBillable(client?.default_billable ?? true)
-    setActivityName('')
+    const nextName = client?.name ?? ''
+    const nextBillable = client?.default_billable ?? true
+    const nextOverrides: Record<string, string> = {}
     if (client) {
-      const next: Record<string, string> = {}
       for (const row of catalog.projectClients.filter((item) => item.client_id === client.id)) {
-        next[row.project_id] = row.hourly_rate != null ? String(row.hourly_rate) : ''
+        nextOverrides[row.project_id] = row.hourly_rate != null ? String(row.hourly_rate) : ''
       }
-      setOverrides(next)
+    }
+    setEditing(client ?? null)
+    setName(nextName)
+    setBillable(nextBillable)
+    setActivityName('')
+    setOverrides(nextOverrides)
+    setSnapshot({ name: nextName, billable: nextBillable, overrides: nextOverrides })
+    setPendingActivity(null)
+    setRenaming(null)
+    setMoving(null)
+    if (client) {
       const first = catalog.projectClients.find((item) => item.client_id === client.id)
       setActivityProjectId(first?.project_id ?? '')
     } else {
-      setOverrides({})
       setActivityProjectId('')
     }
   }
 
   const links = editing ? catalog.projectClients.filter((row) => row.client_id === editing.id) : []
   const clientActivities = editing ? catalog.activities.filter((row) => row.client_id === editing.id) : []
+  const clientDirty =
+    name !== snapshot.name ||
+    billable !== snapshot.billable ||
+    Object.keys({ ...snapshot.overrides, ...overrides }).some(
+      (key) => (overrides[key] ?? '') !== (snapshot.overrides[key] ?? ''),
+    )
 
   async function save() {
     if (!needWorkspace() || !name.trim()) {
@@ -213,6 +576,7 @@ function ClientEditor({
       return
     }
     onError(null)
+    setSaving(true)
     try {
       let saved: Client
       if (editing) {
@@ -244,7 +608,6 @@ function ClientEditor({
         return [...list, saved]
       })
       load(saved)
-      toast({ tone: 'success', title: 'Client saved', description: saved.name })
       for (const row of catalog.projectClients.filter((item) => item.client_id === saved.id)) {
         const raw = overrides[row.project_id] ?? ''
         const { error } = await supabase.rpc('set_project_client_rate', {
@@ -254,9 +617,13 @@ function ClientEditor({
         })
         if (error) throw error
       }
+      setSnapshot({ name: saved.name, billable: saved.default_billable, overrides: { ...overrides } })
       onSaved()
+      toast({ tone: 'success', title: 'Client saved', description: saved.name })
     } catch (err) {
-      toast({ tone: 'error', title: 'Could not save client', description: err instanceof Error ? err.message : 'Try again.' })
+      toast({ tone: 'error', title: 'Could not save client', description: failMessage(err) })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -288,12 +655,10 @@ function ClientEditor({
                   className={cn('block w-full px-3 py-2.5 text-left', editing?.id === client.id && 'bg-muted')}
                   onClick={() => load(client)}
                 >
-                  <p className="truncate text-sm font-medium">{client.name}</p>
-                  {count > 0 ? (
-                    <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {count} {count === 1 ? 'project' : 'projects'}
-                    </p>
-                  ) : null}
+                  <p className="truncate text-sm font-medium leading-5">{client.name}</p>
+                  <p className="mt-1 min-h-4 font-mono text-[11px] leading-4 tabular-nums text-muted-foreground">
+                    {count > 0 ? `${count} ${count === 1 ? 'project' : 'projects'}` : ''}
+                  </p>
                 </button>
               </li>
             )
@@ -327,7 +692,11 @@ function ClientEditor({
                     <div key={link.id} className="mb-2 flex items-center gap-2">
                       <span className="size-2.5 shrink-0 rounded-sm" style={{ background: project?.color || '#5E5C57' }} aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate text-sm">{project?.name}</span>
-                      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{Number(link.split_percent)}%</span>
+                      {link.split_percent != null ? (
+                        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                          {Number(link.split_percent)}%
+                        </span>
+                      ) : null}
                       <Input
                         className="w-24"
                         type="number"
@@ -375,7 +744,7 @@ function ClientEditor({
                     onChange={(e) => setActivityName(e.target.value)}
                     placeholder="Activity name"
                   />
-                  <Button type="submit" className="h-9">
+                  <Button type="submit" className="h-9" disabled={!activityName.trim() || !activityProjectId}>
                     Add
                   </Button>
                 </form>
@@ -391,6 +760,15 @@ function ClientEditor({
                         <span className="size-2.5 shrink-0 rounded-sm" style={{ background: project?.color || '#5E5C57' }} aria-hidden="true" />
                         <span className="truncate">{activity.name}</span>
                         <span className="text-muted-foreground">{project?.name}</span>
+                        {canManage ? (
+                          <>
+                            <ActivityRowMenu
+                              onRename={() => setRenaming(activity)}
+                              onMove={() => setMoving(activity)}
+                            />
+                            <RemoveActivityButton onClick={() => setPendingActivity({ id: activity.id, name: activity.name })} />
+                          </>
+                        ) : null}
                       </li>
                     )
                   })}
@@ -400,136 +778,42 @@ function ClientEditor({
           </>
         ) : null}
         {canManage ? (
-          <Button className="mt-4" onClick={() => void save()} disabled={!name.trim()}>
+          <Button className="mt-4" onClick={() => void save()} disabled={!clientDirty} loading={saving}>
             Save client
           </Button>
         ) : null}
+        <ActivityRenameDialog
+          activity={renaming}
+          open={Boolean(renaming)}
+          onOpenChange={(open) => {
+            if (!open) setRenaming(null)
+          }}
+          onSaved={onSaved}
+        />
+        <ActivityMoveDialog
+          activity={moving}
+          projects={catalog.allProjects}
+          clients={catalog.clients}
+          open={Boolean(moving)}
+          onOpenChange={(open) => {
+            if (!open) setMoving(null)
+          }}
+          onSaved={onSaved}
+        />
+        <ConfirmDeleteDialog
+          name={pendingActivity?.name ?? null}
+          open={Boolean(pendingActivity)}
+          onOpenChange={(open) => {
+            if (!open) setPendingActivity(null)
+          }}
+          onConfirm={() => {
+            if (!pendingActivity) return
+            const id = pendingActivity.id
+            setPendingActivity(null)
+            void deleteActivity(id, onSaved)
+          }}
+        />
       </div>
-    </div>
-  )
-}
-
-function NameList({
-  label,
-  items,
-  onCreate,
-  canManage,
-}: {
-  label: string
-  items: string[]
-  onCreate: (name: string) => Promise<void>
-  canManage: boolean
-}) {
-  const [name, setName] = useState('')
-  const mutate = useMutation({ mutationFn: onCreate })
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {canManage ? (
-        <form
-          className="flex h-9 shrink-0 items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (!name.trim()) return
-            mutate.mutate(name.trim())
-            setName('')
-          }}
-        >
-          <Input className="h-9" value={name} onChange={(e) => setName(e.target.value)} placeholder={label} />
-          <Button type="submit" className="h-9">
-            Add
-          </Button>
-        </form>
-      ) : (
-        <p className="text-sm text-muted-foreground">Only owners and admins can edit this list.</p>
-      )}
-      <ul className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
-        {items.length === 0 ? (
-          <li className="px-3 py-3 text-sm text-muted-foreground">Nothing here yet. Add one above.</li>
-        ) : (
-          items.map((item) => (
-            <li key={item} className="border-t border-border px-3 py-2.5 text-sm first:border-t-0">
-              {item}
-            </li>
-          ))
-        )}
-      </ul>
-    </div>
-  )
-}
-
-function AliasEditor({
-  catalog,
-  canManage,
-  needWorkspace,
-  workspaceId,
-  onSaved,
-}: {
-  catalog: ReturnType<typeof useCatalog>
-  canManage: boolean
-  needWorkspace: () => boolean
-  workspaceId: string
-  onSaved: () => void
-}) {
-  const [shortcut, setShortcut] = useState('')
-  const [projectId, setProjectId] = useState('')
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {canManage ? (
-        <form
-          className="flex h-9 shrink-0 items-center gap-2"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            if (!needWorkspace() || !projectId || !shortcut.trim()) return
-            const { error } = await supabase.from('project_aliases').insert({
-              workspace_id: workspaceId,
-              shortcut: shortcut.trim(),
-              project_id: projectId,
-            })
-            if (error) throw error
-            setShortcut('')
-            onSaved()
-          }}
-        >
-          <Input
-            className="h-9 w-32 font-mono"
-            value={shortcut}
-            onChange={(e) => setShortcut(e.target.value)}
-            placeholder="Shortcut"
-          />
-          <Select value={projectId || undefined} onValueChange={setProjectId}>
-            <SelectTrigger className="min-w-0 flex-1">
-              <SelectValue placeholder="Official project" />
-            </SelectTrigger>
-            <SelectContent>
-              {catalog.allProjects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button type="submit" className="h-9">
-            Add alias
-          </Button>
-        </form>
-      ) : null}
-      <ul className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
-        {catalog.aliases.length === 0 ? (
-          <li className="px-3 py-3 text-sm text-muted-foreground">Nothing here yet. Add one above.</li>
-        ) : (
-          catalog.aliases.map((alias) => {
-            const project = catalog.allProjects.find((item) => item.id === alias.project_id)
-            return (
-              <li key={alias.id} className="flex items-center gap-2 border-t border-border px-3 py-2.5 text-sm first:border-t-0">
-                <span className="font-mono">{alias.shortcut}</span>
-                <span className="text-muted-foreground">→</span>
-                <span className="size-2.5 shrink-0 rounded-sm" style={{ background: project?.color || '#5E5C57' }} aria-hidden="true" />
-                {project?.name}
-              </li>
-            )
-          })
-        )}
-      </ul>
     </div>
   )
 }
@@ -557,47 +841,139 @@ function ProjectEditor({
   const [rate, setRate] = useState('')
   const [currency, setCurrency] = useState('SEK')
   const [splits, setSplits] = useState<SplitShare[]>([])
-  const [tagIds, setTagIds] = useState<string[]>([])
   const [activityName, setActivityName] = useState('')
+  const [shortcut, setShortcut] = useState('')
+  const [draftActivities, setDraftActivities] = useState<string[]>([])
+  const [draftAliases, setDraftAliases] = useState<string[]>([])
+  const [saveHint, setSaveHint] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmName, setConfirmName] = useState('')
+  const [pendingActivity, setPendingActivity] = useState<{ id: string; name: string } | { draft: string } | null>(null)
+  const [renaming, setRenaming] = useState<Activity | null>(null)
+  const [moving, setMoving] = useState<Activity | null>(null)
+  const [renamingDraft, setRenamingDraft] = useState<string | null>(null)
+  const [renamingAlias, setRenamingAlias] = useState<{ id: string; shortcut: string } | { draft: string } | null>(null)
+  const [pendingAlias, setPendingAlias] = useState<{ id: string; shortcut: string } | { draft: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [snapshot, setSnapshot] = useState({
+    name: '',
+    description: '',
+    color: DEFAULT_COLOR,
+    billable: true,
+    rate: '',
+    currency: 'SEK',
+    splits: [] as SplitShare[],
+  })
   const picker = useRef<HTMLInputElement>(null)
   const qc = useQueryClient()
 
   function load(project?: Project) {
-    setEditing(project ?? null)
-    setName(project?.name ?? '')
-    setDescription(project?.description ?? '')
-    setColor(project?.color ?? DEFAULT_COLOR)
-    setBillable(project?.billable ?? true)
-    setActivityName('')
-    setRate(project?.hourly_rate != null ? String(project.hourly_rate) : '')
-    setCurrency(project?.currency ?? 'SEK')
-    if (project) {
-      setSplits(
-        catalog.projectClients
+    const nextName = project?.name ?? ''
+    const nextDescription = project?.description ?? ''
+    const nextColor = project?.color ?? DEFAULT_COLOR
+    const nextBillable = project?.billable ?? true
+    const nextRate = project?.hourly_rate != null ? String(project.hourly_rate) : ''
+    const nextCurrency = project?.currency ?? 'SEK'
+    const nextSplits = project
+      ? catalog.projectClients
           .filter((row) => row.project_id === project.id)
-          .map((row) => ({ clientId: row.client_id, percent: Number(row.split_percent) })),
-      )
-      setTagIds(catalog.projectTags.filter((row) => row.project_id === project.id).map((row) => row.tag_id))
-    } else {
-      setSplits([])
-      setTagIds([])
-    }
+          .map((row) => ({
+            clientId: row.client_id,
+            percent: row.split_percent == null ? null : Number(row.split_percent),
+          }))
+      : []
+    setEditing(project ?? null)
+    setName(nextName)
+    setDescription(nextDescription)
+    setColor(nextColor)
+    setBillable(nextBillable)
+    setActivityName('')
+    setShortcut('')
+    setDraftActivities([])
+    setDraftAliases([])
+    setPendingActivity(null)
+    setRenaming(null)
+    setMoving(null)
+    setRenamingDraft(null)
+    setRenamingAlias(null)
+    setPendingAlias(null)
+    setSaveHint(null)
+    setRate(nextRate)
+    setCurrency(nextCurrency)
+    setSplits(nextSplits)
+    setSnapshot({
+      name: nextName,
+      description: nextDescription,
+      color: nextColor,
+      billable: nextBillable,
+      rate: nextRate,
+      currency: nextCurrency,
+      splits: nextSplits,
+    })
   }
 
+  const clientActivityGroups = (() => {
+    if (!editing) return []
+    const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' })
+    const groups = new Map<string, { id: string; name: string; activities: Activity[] }>()
+    for (const activity of catalog.activities) {
+      if (activity.project_id !== editing.id || activity.client_id == null) continue
+      const client = catalog.clients.find((item) => item.id === activity.client_id)
+      const group = groups.get(activity.client_id) ?? {
+        id: activity.client_id,
+        name: client?.name ?? 'Client',
+        activities: [],
+      }
+      group.activities.push(activity)
+      groups.set(activity.client_id, group)
+    }
+    return [...groups.values()]
+      .sort((a, b) => byName(a.name, b.name))
+      .map((group) => ({ ...group, activities: [...group.activities].sort((a, b) => byName(a.name, b.name)) }))
+  })()
   const total = splitsTotal(splits)
   const uniqueClients = new Set(splits.map((row) => row.clientId)).size === splits.length
-  const valid = Boolean(name.trim()) && (splits.length === 0 || (total === 100 && uniqueClients))
+  const noSplit = splits.every((row) => row.percent == null)
+  const projectDirty =
+    name !== snapshot.name ||
+    description !== snapshot.description ||
+    color.toUpperCase() !== snapshot.color.toUpperCase() ||
+    billable !== snapshot.billable ||
+    rate !== snapshot.rate ||
+    currency !== snapshot.currency ||
+    splits.length !== snapshot.splits.length ||
+    splits.some(
+      (row, index) =>
+        row.clientId !== snapshot.splits[index]?.clientId || row.percent !== snapshot.splits[index]?.percent,
+    ) ||
+    draftActivities.length > 0 ||
+    draftAliases.length > 0
+
+  function invalidReason() {
+    if (!name.trim()) return 'Project needs a name.'
+    if (splits.length === 0) return null
+    if (!uniqueClients) return 'Each client can only appear once.'
+    if (noSplit) return null
+    if (total !== 100) return `Client splits must sum to 100, currently ${total}.`
+    return null
+  }
 
   async function save() {
-    if (!needWorkspace() || !valid) {
-      onError(
-        splits.length === 0
-          ? 'Project needs a name.'
-          : 'Client splits must be unique and sum to 100, or leave clients empty.',
-      )
+    if (!needWorkspace()) {
+      const msg = 'Switch to a specific workspace to create records.'
+      setSaveHint(msg)
+      toast({ tone: 'error', title: 'Could not save project', description: msg })
       return
     }
+    const reason = invalidReason()
+    if (reason) {
+      setSaveHint(reason)
+      toast({ tone: 'error', title: 'Could not save project', description: reason })
+      return
+    }
+    setSaveHint(null)
     onError(null)
+    setSaving(true)
     const payload = {
       name: name.trim(),
       description: description.trim(),
@@ -631,21 +1007,111 @@ function ProjectEditor({
         }
         return [...list, saved]
       })
-      load(saved)
-      toast({ tone: 'success', title: 'Project saved', description: saved.name })
-      const { error: splitErr } = await supabase.rpc('replace_project_clients', {
+      const { data: links, error: splitErr } = await supabase.rpc('replace_project_clients', {
         p_project_id: saved.id,
         p_splits: splits.map((row) => ({ client_id: row.clientId, split_percent: row.percent })),
       })
       if (splitErr) throw splitErr
-      const { error: tagErr } = await supabase.rpc('replace_project_tags', {
-        p_project_id: saved.id,
-        p_tag_ids: tagIds,
+      qc.setQueryData(qk.projectClients(workspaceId), (current: ProjectClient[] | undefined) => {
+        const rest = (current ?? []).filter((row) => row.project_id !== saved.id)
+        return [...rest, ...((links ?? []) as ProjectClient[])]
       })
-      if (tagErr) throw tagErr
+      const nextSnap = {
+        name: saved.name,
+        description: saved.description,
+        color: saved.color,
+        billable: saved.billable,
+        rate: saved.hourly_rate != null ? String(saved.hourly_rate) : '',
+        currency: saved.currency ?? 'SEK',
+        splits: splits.map((row) => ({ ...row })),
+      }
+      setEditing(saved)
+      setName(nextSnap.name)
+      setDescription(nextSnap.description)
+      setColor(nextSnap.color)
+      setBillable(nextSnap.billable)
+      setRate(nextSnap.rate)
+      setCurrency(nextSnap.currency)
+      setSplits(nextSnap.splits)
+      setSnapshot(nextSnap)
+      const leftoverActivities: string[] = []
+      let draftError: string | null = null
+      for (const item of draftActivities) {
+        if (draftError) {
+          leftoverActivities.push(item)
+          continue
+        }
+        const { data, error } = await supabase
+          .from('activities')
+          .insert({ workspace_id: workspaceId, project_id: saved.id, client_id: null, name: item })
+          .select('*')
+          .single()
+        if (error) {
+          draftError = failMessage(error)
+          leftoverActivities.push(item)
+        } else if (data) {
+          qc.setQueryData(qk.activities(workspaceId), (current: Activity[] | undefined) => [...(current ?? []), data as Activity])
+        }
+      }
+      const leftoverAliases: string[] = []
+      for (const item of draftAliases) {
+        if (draftError) {
+          leftoverAliases.push(item)
+          continue
+        }
+        const { data, error } = await supabase
+          .from('project_aliases')
+          .insert({ workspace_id: workspaceId, project_id: saved.id, shortcut: item })
+          .select('*')
+          .single()
+        if (error) {
+          draftError = failMessage(error)
+          leftoverAliases.push(item)
+        } else if (data) {
+          qc.setQueryData(qk.aliases(workspaceId), (current: ProjectAlias[] | undefined) => [
+            ...(current ?? []),
+            data as ProjectAlias,
+          ])
+        }
+      }
+      setDraftActivities(leftoverActivities)
+      setDraftAliases(leftoverAliases)
       onSaved()
+      if (draftError) throw new Error(draftError)
+      toast({ tone: 'success', title: 'Project saved', description: saved.name })
     } catch (err) {
-      toast({ tone: 'error', title: 'Could not save project', description: err instanceof Error ? err.message : 'Try again.' })
+      const msg = failMessage(err)
+      setSaveHint(msg)
+      toast({ tone: 'error', title: 'Could not save project', description: msg })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function remove() {
+    if (!editing || confirmName !== editing.name) return
+    try {
+      const { error } = await supabase.rpc('delete_project', { p_project_id: editing.id })
+      if (error) throw error
+      const removedId = editing.id
+      const removedName = editing.name
+      qc.setQueryData(qk.projects(workspaceId), (current: Project[] | undefined) =>
+        (current ?? []).filter((item) => item.id !== removedId),
+      )
+      setConfirmOpen(false)
+      setConfirmName('')
+      load()
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: qk.entries(workspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.requests(workspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.activities(workspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.aliases(workspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.projectClients(workspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.running }),
+      ])
+      toast({ tone: 'success', title: 'Project deleted', description: removedName })
+    } catch (err) {
+      toast({ tone: 'error', title: 'Could not delete project', description: failMessage(err) })
     }
   }
 
@@ -660,8 +1126,13 @@ function ProjectEditor({
               .filter((row) => row.project_id === project.id)
               .map((row) => {
                 const client = catalog.clients.find((item) => item.id === row.client_id)
-                return `${client?.name ?? 'Client'} ${Number(row.split_percent)}%`
+                const name = client?.name ?? 'Client'
+                return {
+                  name,
+                  label: row.split_percent == null ? name : `${name} ${Number(row.split_percent)}%`,
+                }
               })
+              .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
             const selected = editing?.id === project.id
             return (
               <li key={project.id} className="border-t border-border first:border-t-0">
@@ -672,14 +1143,14 @@ function ProjectEditor({
                 >
                   <div className="flex items-center gap-2">
                     <span className="size-2.5 shrink-0 rounded-sm" style={{ background: project.color }} aria-hidden="true" />
-                    <span className="truncate text-sm font-medium">{project.name}</span>
+                    <span className="truncate text-sm font-medium leading-5">{project.name}</span>
                     {project.description ? (
-                      <span className="min-w-0 truncate text-sm text-muted-foreground">{project.description}</span>
+                      <span className="min-w-0 truncate text-sm leading-5 text-muted-foreground">{project.description}</span>
                     ) : null}
                   </div>
-                  {chips.length > 0 ? (
-                    <p className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">{chips.join(' · ')}</p>
-                  ) : null}
+                  <p className="mt-1 min-h-4 font-mono text-[11px] leading-4 tabular-nums text-muted-foreground">
+                    {chips.map((chip) => chip.label).join(' · ')}
+                  </p>
                 </button>
               </li>
             )
@@ -704,6 +1175,77 @@ function ProjectEditor({
             disabled={!canManage}
             placeholder="Optional"
           />
+        </div>
+        <div className="mt-4">
+          <p className="mb-2 text-sm font-medium">Aliases</p>
+          {canManage ? (
+            <form
+              className="mb-2 flex h-9 items-center gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const value = shortcut.trim()
+                if (!value) return
+                if (!editing) {
+                  if (draftAliases.some((item) => item.toLowerCase() === value.toLowerCase())) return
+                  setDraftAliases((rows) => [...rows, value])
+                  setShortcut('')
+                  return
+                }
+                if (!needWorkspace()) return
+                const { error } = await supabase.from('project_aliases').insert({
+                  workspace_id: workspaceId,
+                  project_id: editing.id,
+                  shortcut: value,
+                })
+                if (error) {
+                  toast({ tone: 'error', title: 'Could not add alias', description: failMessage(error) })
+                  return
+                }
+                setShortcut('')
+                onSaved()
+                toast({ tone: 'success', title: 'Alias added', description: value })
+              }}
+            >
+              <Input
+                className="h-9 min-w-0 flex-1 font-mono"
+                value={shortcut}
+                onChange={(e) => setShortcut(e.target.value)}
+                placeholder="Shortcut"
+              />
+              <Button type="submit" className="h-9" disabled={!shortcut.trim()}>
+                Add
+              </Button>
+            </form>
+          ) : null}
+          {(editing ? catalog.aliases.filter((row) => row.project_id === editing.id) : []).length === 0 &&
+          draftAliases.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No aliases yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {editing
+                ? catalog.aliases
+                    .filter((row) => row.project_id === editing.id)
+                    .map((alias) => (
+                      <AliasChip
+                        key={alias.id}
+                        shortcut={alias.shortcut}
+                        canManage={canManage}
+                        onRename={() => setRenamingAlias({ id: alias.id, shortcut: alias.shortcut })}
+                        onDelete={() => setPendingAlias({ id: alias.id, shortcut: alias.shortcut })}
+                      />
+                    ))
+                : null}
+              {draftAliases.map((item) => (
+                <AliasChip
+                  key={`draft-${item}`}
+                  shortcut={item}
+                  canManage={canManage}
+                  onRename={() => setRenamingAlias({ draft: item })}
+                  onDelete={() => setPendingAlias({ draft: item })}
+                />
+              ))}
+            </div>
+          )}
         </div>
         <div className="mt-3 grid gap-1.5">
           <Label>Color</Label>
@@ -742,56 +1284,82 @@ function ProjectEditor({
             </button>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-2">
-          <Switch checked={billable} onCheckedChange={setBillable} disabled={!canManage} id="pbill" />
-          <Label htmlFor="pbill">Billable by default</Label>
-        </div>
-        <div className="mt-4 grid gap-1.5">
-          <Label htmlFor="prate">Hourly rate</Label>
-          <div className="flex h-9 items-center gap-2">
-            <Input
-              id="prate"
-              className="h-9 min-w-0 flex-1"
-              type="number"
-              min={0}
-              step={0.01}
-              value={rate}
-              disabled={!canManage}
-              placeholder="Optional"
-              onChange={(e) => setRate(e.target.value)}
-            />
-            <Select value={currency} onValueChange={setCurrency} disabled={!canManage}>
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CURRENCIES.map((code) => (
-                  <SelectItem key={code} value={code}>
-                    {code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="mt-4 flex h-9 items-center overflow-hidden rounded-md border border-input bg-background">
+          <div className="flex h-full shrink-0 items-center gap-2 border-r border-input px-3">
+            <Switch checked={billable} onCheckedChange={setBillable} disabled={!canManage} id="pbill" />
+            <Label htmlFor="pbill">Billable</Label>
           </div>
+          <Input
+            id="prate"
+            className="h-9 min-w-0 flex-1 rounded-none border-0 bg-transparent tabular-nums shadow-none focus-visible:ring-0"
+            type="number"
+            min={0}
+            step={0.01}
+            value={rate}
+            disabled={!canManage}
+            placeholder="Rate"
+            aria-label="Hourly rate"
+            onChange={(e) => setRate(e.target.value)}
+          />
+          <Select value={currency} onValueChange={setCurrency} disabled={!canManage}>
+            <SelectTrigger className="h-9 w-[4.75rem] shrink-0 rounded-none border-0 border-l border-input bg-transparent" aria-label="Currency">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CURRENCIES.map((code) => (
+                <SelectItem key={code} value={code}>
+                  {code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="mt-4">
-          <p className="mb-1 text-sm font-medium">Client splits ({splits.length === 0 ? 'none' : `${total}%`})</p>
-          <p className="mb-2 text-sm text-muted-foreground">Optional. Leave empty for personal or internal projects.</p>
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+            Clients ({splits.length === 0 ? 'none' : noSplit ? 'no split' : `${total}%`})
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="inline-flex text-muted-foreground" aria-label="About clients">
+                  <InformationCircleIcon className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                A percentage split automatically assigns every log on this project to these clients. No split means you
+                pick the client on each time entry, and each chosen client keeps the full hour. Leave clients empty for
+                a personal or internal project.
+              </TooltipContent>
+            </Tooltip>
+          </p>
           <div className="mb-2 flex flex-wrap gap-2">
-            {PRESETS.map((preset) => (
-              <Button
-                key={preset.label}
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={!canManage || splits.length !== preset.parts.length}
-                onClick={() =>
-                  setSplits((current) => current.map((row, i) => ({ ...row, percent: preset.parts[i] ?? row.percent })))
-                }
-              >
-                {preset.label}
-              </Button>
-            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant={noSplit ? 'default' : 'outline'}
+              disabled={!canManage}
+              onClick={() => setSplits((current) => current.map((row) => ({ ...row, percent: null })))}
+            >
+              No split
+            </Button>
+            {PRESETS.map((preset) => {
+              const selected =
+                !noSplit &&
+                splits.length === preset.parts.length &&
+                splits.every((row, i) => row.percent === preset.parts[i])
+              return (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  size="sm"
+                  variant={selected ? 'default' : 'outline'}
+                  disabled={!canManage || splits.length !== preset.parts.length}
+                  onClick={() =>
+                    setSplits((current) => current.map((row, i) => ({ ...row, percent: preset.parts[i] ?? row.percent })))
+                  }
+                >
+                  {preset.label}
+                </Button>
+              )
+            })}
           </div>
           {splits.map((split, index) => (
             <div key={`${split.clientId}-${index}`} className="mb-2 flex gap-2">
@@ -813,25 +1381,27 @@ function ProjectEditor({
                   ))}
                 </SelectContent>
               </Select>
-              <div className="relative w-24">
-                <Input
-                  className="w-24 pr-7"
-                  type="number"
-                  min={0.01}
-                  max={100}
-                  step={0.01}
-                  value={split.percent}
-                  disabled={!canManage}
-                  onChange={(e) =>
-                    setSplits((rows) =>
-                      rows.map((row, i) => (i === index ? { ...row, percent: Number(e.target.value) } : row)),
-                    )
-                  }
-                />
-                <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-sm text-muted-foreground">
-                  %
-                </span>
-              </div>
+              {noSplit ? null : (
+                <div className="relative w-24">
+                  <Input
+                    className="w-24 pr-7"
+                    type="number"
+                    min={0.01}
+                    max={100}
+                    step={0.01}
+                    value={split.percent ?? ''}
+                    disabled={!canManage}
+                    onChange={(e) =>
+                      setSplits((rows) =>
+                        rows.map((row, i) => (i === index ? { ...row, percent: Number(e.target.value) } : row)),
+                      )
+                    }
+                  />
+                  <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-sm text-muted-foreground">
+                    %
+                  </span>
+                </div>
+              )}
               {canManage ? (
                 <Button type="button" variant="ghost" onClick={() => setSplits((rows) => rows.filter((_, i) => i !== index))}>
                   Remove
@@ -847,7 +1417,10 @@ function ProjectEditor({
               onClick={() => {
                 const next = catalog.clients.find((client) => !splits.some((row) => row.clientId === client.id))
                 if (!next) return
-                setSplits((rows) => [...rows, { clientId: next.id, percent: rows.length === 0 ? 100 : 0 }])
+                setSplits((rows) => [
+                  ...rows,
+                  { clientId: next.id, percent: noSplit ? null : rows.length === 0 ? 100 : 0 },
+                ])
               }}
             >
               Add client
@@ -855,98 +1428,282 @@ function ProjectEditor({
           ) : null}
         </div>
         <div className="mt-4">
-          <p className="mb-2 text-sm font-medium">Quick-start tags</p>
-          <div className="flex flex-col gap-2">
-            {catalog.tags.map((tag) => (
-              <label key={tag.id} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={tagIds.includes(tag.id)}
-                  disabled={!canManage}
-                  onCheckedChange={(value) =>
-                    setTagIds((ids) => (value === true ? [...ids, tag.id] : ids.filter((id) => id !== tag.id)))
-                  }
-                />
-                {tag.name}
-              </label>
-            ))}
-          </div>
-        </div>
-        {editing ? (
-          <>
-            <div className="mt-4">
-              <p className="mb-2 text-sm font-medium">Activities</p>
-              {canManage ? (
-                <form
-                  className="mb-2 flex h-9 items-center gap-2"
-                  onSubmit={async (e) => {
-                    e.preventDefault()
-                    if (!needWorkspace() || !activityName.trim()) return
-                    const { error } = await supabase.from('activities').insert({
-                      workspace_id: workspaceId,
-                      project_id: editing.id,
-                      client_id: null,
-                      name: activityName.trim(),
-                    })
-                    if (error) {
-                      onError(error.message)
-                      return
-                    }
-                    setActivityName('')
-                    onSaved()
-                  }}
-                >
-                  <Input
-                    className="h-9 min-w-0 flex-1"
-                    value={activityName}
-                    onChange={(e) => setActivityName(e.target.value)}
-                    placeholder="Activity name"
-                  />
-                  <Button type="submit" className="h-9">
-                    Add
-                  </Button>
-                </form>
-              ) : null}
-              {catalog.activities.filter((row) => row.project_id === editing.id && row.client_id == null).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No project activities yet.</p>
-              ) : (
-                <ul>
-                  {catalog.activities
+          <p className="mb-2 text-sm font-medium">Activities</p>
+          {canManage ? (
+            <form
+              className="mb-2 flex h-9 items-center gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const value = activityName.trim()
+                if (!value) return
+                if (!editing) {
+                  if (draftActivities.some((item) => item.toLowerCase() === value.toLowerCase())) return
+                  setDraftActivities((rows) => [...rows, value])
+                  setActivityName('')
+                  return
+                }
+                if (!needWorkspace()) return
+                const { error } = await supabase.from('activities').insert({
+                  workspace_id: workspaceId,
+                  project_id: editing.id,
+                  client_id: null,
+                  name: value,
+                })
+                if (error) {
+                  toast({ tone: 'error', title: 'Could not add activity', description: failMessage(error) })
+                  return
+                }
+                setActivityName('')
+                onSaved()
+              }}
+            >
+              <Input
+                className="h-9 min-w-0 flex-1"
+                value={activityName}
+                onChange={(e) => setActivityName(e.target.value)}
+                placeholder="Activity name"
+              />
+              <Button type="submit" className="h-9" disabled={!activityName.trim()}>
+                Add
+              </Button>
+            </form>
+          ) : null}
+          {(editing
+            ? catalog.activities.filter((row) => row.project_id === editing.id && row.client_id == null)
+            : []
+          ).length === 0 && draftActivities.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No project activities yet.</p>
+          ) : (
+            <ul>
+              {editing
+                ? catalog.activities
                     .filter((row) => row.project_id === editing.id && row.client_id == null)
                     .map((activity) => (
-                      <li key={activity.id} className="py-1.5 text-sm">
+                      <li key={activity.id} className="flex items-center gap-2 py-1.5 text-sm">
+                        <span className="min-w-0 flex-1 truncate">{activity.name}</span>
+                        {canManage ? (
+                          <>
+                            <ActivityRowMenu
+                              onRename={() => setRenaming(activity)}
+                              onMove={() => setMoving(activity)}
+                            />
+                            <RemoveActivityButton onClick={() => setPendingActivity({ id: activity.id, name: activity.name })} />
+                          </>
+                        ) : null}
+                      </li>
+                    ))
+                : null}
+              {draftActivities.map((item) => (
+                <li key={`draft-${item}`} className="flex items-center gap-2 py-1.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{item}</span>
+                  {canManage ? (
+                    <>
+                      <ActivityRowMenu onRename={() => setRenamingDraft(item)} />
+                      <RemoveActivityButton onClick={() => setPendingActivity({ draft: item })} />
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="mt-4">
+          <p className="mb-2 text-sm font-medium">From clients</p>
+          {clientActivityGroups.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No client activities on this project.</p>
+          ) : (
+            <div className="grid gap-2">
+              {clientActivityGroups.map((group) => (
+                <div key={group.id}>
+                  <p className="text-xs font-medium text-muted-foreground">{group.name}</p>
+                  <ul>
+                    {group.activities.map((activity) => (
+                      <li key={activity.id} className="truncate py-1 text-sm">
                         {activity.name}
                       </li>
                     ))}
-                </ul>
-              )}
+                  </ul>
+                </div>
+              ))}
             </div>
-            <div className="mt-4">
-              <p className="mb-2 text-sm font-medium">From clients</p>
-              {catalog.activities.filter((row) => row.project_id === editing.id && row.client_id != null).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No client activities on this project.</p>
-              ) : (
-                <ul>
-                  {catalog.activities
-                    .filter((row) => row.project_id === editing.id && row.client_id != null)
-                    .map((activity) => {
-                      const client = catalog.clients.find((item) => item.id === activity.client_id)
-                      return (
-                        <li key={activity.id} className="flex items-center gap-2 py-1.5 text-sm">
-                          <span className="truncate">{activity.name}</span>
-                          <span className="text-muted-foreground">{client?.name}</span>
-                        </li>
-                      )
-                    })}
-                </ul>
-              )}
-            </div>
-          </>
-        ) : null}
+          )}
+        </div>
         {canManage ? (
-          <Button className="mt-4" onClick={() => void save()} disabled={!valid}>
-            Save project
-          </Button>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button onClick={() => void save()} disabled={!projectDirty} loading={saving}>
+              Save project
+            </Button>
+            {editing ? (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setConfirmName('')
+                  setConfirmOpen(true)
+                }}
+              >
+                Delete project
+              </Button>
+            ) : null}
+            {saveHint ? <p className="mt-0 basis-full text-sm text-destructive">{saveHint}</p> : null}
+          </div>
         ) : null}
+        <ActivityRenameDialog
+          activity={renaming}
+          open={Boolean(renaming)}
+          onOpenChange={(open) => {
+            if (!open) setRenaming(null)
+          }}
+          onSaved={onSaved}
+        />
+        <ActivityMoveDialog
+          activity={moving}
+          projects={catalog.allProjects}
+          clients={catalog.clients}
+          open={Boolean(moving)}
+          onOpenChange={(open) => {
+            if (!open) setMoving(null)
+          }}
+          onSaved={onSaved}
+        />
+        <DraftRenameDialog
+          current={renamingDraft}
+          open={Boolean(renamingDraft)}
+          onOpenChange={(open) => {
+            if (!open) setRenamingDraft(null)
+          }}
+          onSave={(next) => {
+            const previous = renamingDraft
+            if (!previous) return
+            if (draftActivities.some((item) => item !== previous && item.toLowerCase() === next.toLowerCase())) {
+              toast({ tone: 'error', title: 'Could not rename activity', description: 'An activity with this name already exists.' })
+              return false
+            }
+            setDraftActivities((rows) => rows.map((row) => (row === previous ? next : row)))
+            return true
+          }}
+        />
+        <DraftRenameDialog
+          current={renamingAlias ? ('draft' in renamingAlias ? renamingAlias.draft : renamingAlias.shortcut) : null}
+          open={Boolean(renamingAlias)}
+          title="Rename alias"
+          placeholder="Shortcut"
+          onOpenChange={(open) => {
+            if (!open) setRenamingAlias(null)
+          }}
+          onSave={async (next) => {
+            const current = renamingAlias
+            if (!current) return false
+            if ('draft' in current) {
+              if (draftAliases.some((item) => item !== current.draft && item.toLowerCase() === next.toLowerCase())) {
+                toast({ tone: 'error', title: 'Could not rename alias', description: 'An alias with this shortcut already exists.' })
+                return false
+              }
+              setDraftAliases((rows) => rows.map((row) => (row === current.draft ? next : row)))
+              return true
+            }
+            const { error } = await supabase.from('project_aliases').update({ shortcut: next }).eq('id', current.id)
+            if (error) {
+              toast({ tone: 'error', title: 'Could not rename alias', description: failMessage(error) })
+              return false
+            }
+            onSaved()
+            return true
+          }}
+        />
+        <ConfirmDeleteDialog
+          name={pendingAlias ? ('draft' in pendingAlias ? pendingAlias.draft : pendingAlias.shortcut) : null}
+          open={Boolean(pendingAlias)}
+          onOpenChange={(open) => {
+            if (!open) setPendingAlias(null)
+          }}
+          onConfirm={() => {
+            if (!pendingAlias) return
+            if ('draft' in pendingAlias) {
+              const shortcut = pendingAlias.draft
+              setPendingAlias(null)
+              setDraftAliases((rows) => rows.filter((row) => row !== shortcut))
+              return
+            }
+            const id = pendingAlias.id
+            setPendingAlias(null)
+            void (async () => {
+              const { error } = await supabase.from('project_aliases').delete().eq('id', id)
+              if (error) {
+                toast({ tone: 'error', title: 'Could not delete alias', description: failMessage(error) })
+                return
+              }
+              onSaved()
+            })()
+          }}
+        />
+        <ConfirmDeleteDialog
+          name={pendingActivity ? ('draft' in pendingActivity ? pendingActivity.draft : pendingActivity.name) : null}
+          open={Boolean(pendingActivity)}
+          onOpenChange={(open) => {
+            if (!open) setPendingActivity(null)
+          }}
+          onConfirm={() => {
+            if (!pendingActivity) return
+            if ('draft' in pendingActivity) {
+              const name = pendingActivity.draft
+              setPendingActivity(null)
+              setDraftActivities((rows) => rows.filter((row) => row !== name))
+              return
+            }
+            const id = pendingActivity.id
+            setPendingActivity(null)
+            void deleteActivity(id, onSaved)
+          }}
+        />
+        <Dialog
+          open={confirmOpen}
+          onOpenChange={(open) => {
+            setConfirmOpen(open)
+            if (!open) setConfirmName('')
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="font-bold text-destructive">Delete {editing?.name}?</DialogTitle>
+              <DialogDescription>
+                Time entries, aliases, and activities on this project are removed, including client
+                activities here. Clients and their activities on other projects stay.
+                <span className="mt-2 block text-destructive">This action is irreversible.</span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-1.5">
+              <Label htmlFor="confirm-project">
+                Type <span className="text-destructive">{editing?.name}</span> project to confirm
+              </Label>
+              <Input
+                id="confirm-project"
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setConfirmOpen(false)
+                  setConfirmName('')
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!editing || confirmName !== editing.name}
+                onClick={() => void remove()}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

@@ -1,0 +1,30 @@
+---
+description: Page chrome for every Genki Tenki screen
+alwaysApply: true
+---
+
+# Page layout
+
+These are product mandates, not optional UX suggestions.
+
+## The nav names the page
+
+- The in-page heading is screen-reader only (`sr-only`).
+- Do not add a visible title or a subtitle under it. Projects and Timer are the reference.
+
+## Pages fill the main column
+
+- App pages fill the main column the way Projects does. Do not cap them with `max-w-*`.
+- Auth cards stay narrow.
+
+## Project, client, and activity controls
+
+- A page filter for project, client, or activity uses `Select` from `@/components/ui/select`, the same bordered trigger as the workspace switcher. Include an All row. Text stays left-aligned.
+- Assigning those fields on a timer or entry keeps the chips in `EntryMetaChips`.
+- Do not use a native `<select>`.
+- Every `DropdownMenuItem` and `SelectItem` highlights on hover (`hover:bg-muted`).
+
+## Surfaces separate from the page
+
+- A panel, chart, or table sits on `bg-card` with `border-border`.
+- A border alone on the page background is not enough.

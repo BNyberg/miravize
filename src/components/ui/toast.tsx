@@ -26,15 +26,25 @@ function toast(input: { tone: Tone; title: string; description?: string }) {
   const item: ToastItem = { id: crypto.randomUUID(), ...input }
   items = [...items, item]
   emit()
-  if (input.tone !== 'error') {
-    window.setTimeout(() => dismiss(item.id), 4000)
-  }
+  window.setTimeout(() => dismiss(item.id), 4000)
 }
 
 const icons = {
   success: CheckIcon,
   error: XMarkIcon,
   info: InformationCircleIcon,
+}
+
+const toneClass = {
+  success: 'border-primary',
+  error: 'border-destructive',
+  info: 'border-border',
+}
+
+const iconClass = {
+  success: 'text-primary',
+  error: 'text-destructive',
+  info: 'text-muted-foreground',
 }
 
 function ToastCard({ item }: { item: ToastItem }) {
@@ -45,7 +55,7 @@ function ToastCard({ item }: { item: ToastItem }) {
   return (
     <div
       role="status"
-      className="w-80 rounded-lg border border-border bg-card p-3 shadow-sm"
+      className={`w-80 rounded-lg border bg-card p-3 shadow-sm ${toneClass[item.tone]}`}
       style={{ transform: `translateX(${offset}px)`, opacity: offset > 40 ? 1 - (offset - 40) / 120 : 1 }}
       onPointerDown={(event) => {
         startX.current = event.clientX
@@ -67,7 +77,7 @@ function ToastCard({ item }: { item: ToastItem }) {
       }}
     >
       <div className="flex items-start gap-2">
-        <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <Icon className={`mt-0.5 size-4 shrink-0 ${iconClass[item.tone]}`} aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
             <p className="min-w-0 flex-1 text-sm font-medium">{item.title}</p>

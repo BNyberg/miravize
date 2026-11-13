@@ -10,6 +10,22 @@ metadata:
 
 # UI Styling Skill
 
+## Genki Tenki chrome (mandatory)
+
+Follow `.cursor/rules/page-layout.mdc` on every screen:
+
+- The nav names the page. The in-page heading is screen-reader only. No visible title and no subtitle.
+- App pages fill the main column the way Projects does. Do not cap them with `max-w-*`. Auth cards stay narrow.
+- A page filter for project, client, or activity uses `Select`, the same bordered trigger as the workspace switcher, with an All row. Assigning those fields on a timer or entry keeps the `EntryMetaChips`. Do not use a native `<select>`. Rows stay left-aligned and highlight on hover.
+- A panel, chart, or table sits on `bg-card` with a border. A border alone on the page background is not enough.
+
+## Product interaction (mandatory)
+
+Genki Tenki UI must follow `.cursor/rules/forms-and-destructive-actions.mdc`:
+
+1. **Save** (and persist of an existing record) is disabled until the form is dirty vs the last snapshot. Create/Add/Start stay disabled until required fields are valid. Exception: the logged time-entry editor persists field changes immediately and description on Enter (no Save button).
+2. **Every delete/remove** uses a confirmation Dialog. No instant delete on click.
+
 Comprehensive skill for creating beautiful, accessible user interfaces combining shadcn/ui components, Tailwind CSS utility styling, and canvas-based visual design systems.
 
 ## Reference

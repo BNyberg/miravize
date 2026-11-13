@@ -2,17 +2,45 @@ import { format, isToday, startOfDay } from 'date-fns'
 import { useEffect, useRef, useState } from 'react'
 
 import { formatDuration } from '@/lib/splits'
-import type { TimeEntry } from '@/types'
+import type { Client, ProjectClient, TimeEntry } from '@/types'
 
 import { DAY_MS, HOUR_PX, dayBounds, heightFor, inkOn, layoutDay, snap, topFor } from './week-layout'
 
 type Draft = { day: number; startY: number; endY: number }
 type Preview = { id: string; start: number; end: number }
 
+function clientNames(entry: TimeEntry, clients: Client[], projectClients: ProjectClient[]) {
+  const saved = (entry.time_entry_clients ?? [])
+    .map((row) => clients.find((client) => client.id === row.client_id)?.name)
+    .filter((name): name is string => Boolean(name))
+  if (saved.length > 0 || !entry.project_id) return saved
+  const links = projectClients.filter((row) => row.project_id === entry.project_id)
+  const auto = links.length > 0 && links.some((row) => row.split_percent != null)
+  if (!auto) return saved
+  return links
+    .map((row) => clients.find((client) => client.id === row.client_id)?.name)
+    .filter((name): name is string => Boolean(name))
+}
+
+function projectClientLabel(entry: TimeEntry, clients: Client[], projectClients: ProjectClient[]) {
+  const project = entry.project?.name ?? ''
+  const names = clientNames(entry, clients, projectClients).join(', ')
+  if (project && names) return `${project} · ${names}`
+  return project || names
+}
+
+function entryLabel(entry: TimeEntry, clients: Client[], projectClients: ProjectClient[]) {
+  const description = entry.description.trim()
+  if (description) return description
+  return projectClientLabel(entry, clients, projectClients)
+}
+
 function WeekGrid({
   days,
   entries,
   now,
+  clients,
+  projectClients,
   onCreate,
   onMove,
   onEdit,
@@ -21,6 +49,8 @@ function WeekGrid({
   days: Date[]
   entries: TimeEntry[]
   now: number
+  clients: Client[]
+  projectClients: ProjectClient[]
   onCreate: (start: Date, end: Date, point: { x: number; y: number }) => void
   onMove: (id: string, start: Date, end: Date) => void
   onEdit: (entry: TimeEntry, point: { x: number; y: number }) => void
@@ -247,11 +277,9 @@ function WeekGrid({
                   >
                     {dayView ? (
                       <div className="flex h-full items-center gap-2">
-                        <p className="max-w-[40%] shrink-0 truncate text-[11px] font-medium leading-tight">
-                          {slice.entry.project?.name}
-                        </p>
                         <DescriptionField
                           value={slice.entry.description}
+                          placeholder={projectClientLabel(slice.entry, clients, projectClients)}
                           onSave={(description) => onDescribe(slice.entry.id, description)}
                         />
                         <p className="shrink-0 font-mono text-[10px] tabular-nums leading-tight">
@@ -260,10 +288,9 @@ function WeekGrid({
                       </div>
                     ) : (
                       <>
-                        <p className="truncate text-[11px] font-medium leading-tight">{slice.entry.project?.name}</p>
-                        {slice.end - slice.start > 30 * 60 * 1000 && slice.entry.description ? (
-                          <p className="truncate text-[11px] leading-tight opacity-80">{slice.entry.description}</p>
-                        ) : null}
+                        <p className="truncate text-[11px] font-medium leading-tight">
+                          {entryLabel(slice.entry, clients, projectClients)}
+                        </p>
                         {slice.end - slice.start > 20 * 60 * 1000 ? (
                           <p className="font-mono text-[10px] tabular-nums leading-tight">
                             {formatDuration(Math.round((slice.end - slice.start) / 1000))}
@@ -301,14 +328,22 @@ function WeekGrid({
   )
 }
 
-function DescriptionField({ value, onSave }: { value: string; onSave: (description: string) => void }) {
+function DescriptionField({
+  value,
+  placeholder,
+  onSave,
+}: {
+  value: string
+  placeholder: string
+  onSave: (description: string) => void
+}) {
   return (
     <input
       key={value}
       aria-label="Description"
       defaultValue={value}
-      placeholder="Description"
-      className="min-w-0 flex-1 bg-transparent text-[11px] leading-tight outline-none placeholder:text-current placeholder:opacity-60"
+      placeholder={placeholder || 'Description'}
+      className="min-w-0 flex-1 bg-transparent text-[11px] leading-tight outline-none transition-colors duration-75 hover:bg-muted placeholder:text-current placeholder:opacity-60"
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation()

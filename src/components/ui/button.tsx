@@ -1,3 +1,4 @@
+import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
@@ -35,16 +36,30 @@ function Button({
   variant,
   size,
   asChild = false,
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<'button'> &
-  VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot : 'button'
+  VariantProps<typeof buttonVariants> & { asChild?: boolean; loading?: boolean }) {
+  if (asChild) {
+    return (
+      <Slot data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props}>
+        {children}
+      </Slot>
+    )
+  }
   return (
-    <Comp
+    <button
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+    >
+      {loading ? <ArrowPathIcon className="animate-spin" aria-hidden="true" /> : null}
+      {children}
+    </button>
   )
 }
 

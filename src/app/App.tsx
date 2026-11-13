@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router'
 
 import { AppShell } from '@/components/layout/app-shell'
 import { ToastHost } from '@/components/ui/toast'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAuth } from '@/features/auth/auth-context'
 import { WorkspaceProvider } from '@/features/workspaces/workspace-context'
 import { isSupabaseConfigured } from '@/lib/supabase'
@@ -49,7 +50,7 @@ export function App() {
   }
 
   return (
-    <>
+    <TooltipProvider>
     <ToastHost />
     <Routes>
       <Route
@@ -91,6 +92,6 @@ export function App() {
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>
-    </>
+    </TooltipProvider>
   )
 }

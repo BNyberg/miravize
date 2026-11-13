@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 
 const Popover = PopoverPrimitive.Root
 const PopoverAnchor = PopoverPrimitive.Anchor
+const PopoverTrigger = PopoverPrimitive.Trigger
 
 function PopoverContent({
   className,
@@ -27,4 +28,4 @@ function PopoverContent({
   )
 }
 
-export { Popover, PopoverAnchor, PopoverContent }
+export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger }

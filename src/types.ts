@@ -40,7 +40,7 @@ export type ProjectClient = {
   workspace_id: string
   project_id: string
   client_id: string
-  split_percent: number
+  split_percent: number | null
   hourly_rate: number | null
   client?: Client
 }
@@ -76,7 +76,8 @@ export type TimeEntry = {
   id: string
   workspace_id: string
   user_id: string
-  project_id: string
+  project_id: string | null
+  activity_id: string | null
   description: string
   started_at: string
   stopped_at: string | null
@@ -84,6 +85,8 @@ export type TimeEntry = {
   billable: boolean
   source: 'manual' | 'quick_start'
   project?: Project
+  activity?: Activity | null
+  time_entry_clients?: { client_id: string }[]
   time_entry_tags?: { tag_id: string; tags?: Tag }[]
 }
 

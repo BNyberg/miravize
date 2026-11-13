@@ -1,0 +1,27 @@
+---
+description: Mandatory Save dirty-state and delete confirmation for all product UI
+alwaysApply: true
+---
+
+# Forms and destructive actions
+
+These are product mandates, not optional UX suggestions.
+
+## Save stays disabled until a real change
+
+- Any **Save** (or other persist control that updates an existing record) must be **disabled** until the form is dirty versus the last loaded or saved snapshot.
+- Compare every field the user can edit. Whitespace-only does not count as a name/text change if the trimmed value matches.
+- While a save is in flight, keep the button disabled (loading).
+- **Create** flows (new record, Start timer, Add) stay disabled until required fields are valid (non-empty after trim, required selects chosen). Do not enable Save/Add on a blank form.
+
+Existing references: client and project editors (`clientDirty` / `projectDirty`).
+
+Exception: the logged time-entry editor (`EntryEditor` in edit mode) has no Save button. Project, activity, clients, billable, date, and times persist immediately. Description persists on Enter. Create and Start still use an explicit action until a project is chosen.
+
+## Delete always uses a confirmation modal
+
+- Every delete or remove of persisted data (and of unsaved draft list items the user added) must go through a **Dialog** confirmation. Icon X, toolbar Delete, and list-row remove all count.
+- Never call `delete()` or drop the row on the first click.
+- Confirm UI: title `Delete {name}?` (or `Delete entry?` when there is no label), Cancel, destructive Delete.
+- Irreversible bulk deletes (e.g. a whole project) may also require typing the name.
+- If delete opens from a popover, keep the popover open until the dialog is dismissed (`onInteractOutside` / `onPointerDownOutside` preventDefault while confirm is open).

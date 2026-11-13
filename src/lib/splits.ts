@@ -1,15 +1,16 @@
 export type SplitShare = {
   clientId: string
-  percent: number
+  percent: number | null
 }
 
-export type AllocatedShare = SplitShare & { seconds: number }
+export type AllocatedShare = SplitShare & { seconds: number; percent: number }
 
 export function allocateSeconds(totalSeconds: number, splits: SplitShare[]): AllocatedShare[] {
-  if (splits.length === 0 || totalSeconds <= 0) {
-    return splits.map((s) => ({ ...s, seconds: 0 }))
+  const numbered = splits.filter((s): s is SplitShare & { percent: number } => s.percent != null)
+  if (numbered.length === 0 || totalSeconds <= 0) {
+    return numbered.map((s) => ({ ...s, seconds: 0 }))
   }
-  const ranked = [...splits].sort((a, b) => b.percent - a.percent)
+  const ranked = [...numbered].sort((a, b) => b.percent - a.percent)
   const allocated = ranked.map((s) => ({
     ...s,
     seconds: Math.floor((totalSeconds * s.percent) / 100),
@@ -20,7 +21,7 @@ export function allocateSeconds(totalSeconds: number, splits: SplitShare[]): All
 }
 
 export function splitsTotal(splits: SplitShare[]): number {
-  return Math.round(splits.reduce((sum, s) => sum + s.percent, 0) * 100) / 100
+  return Math.round(splits.reduce((sum, s) => sum + (s.percent ?? 0), 0) * 100) / 100
 }
 
 export function formatDuration(totalSeconds: number): string {
