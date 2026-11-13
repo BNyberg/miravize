@@ -1,4 +1,5 @@
 import { EllipsisHorizontalIcon } from '@heroicons/react/24/outline'
+import { useQuery } from '@tanstack/react-query'
 import { addDays, format } from 'date-fns'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
@@ -24,9 +25,14 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toast'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { qk } from '@/lib/query-keys'
+import { requestCode } from '@/lib/request-code'
+import { taskCode } from '@/lib/task-code'
 import { formatDuration } from '@/lib/splits'
+import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-import type { Activity, Client, Project, ProjectClient, TimeEntry, Workspace } from '@/types'
+import type { Activity, Client, Project, ProjectClient, TimeEntry } from '@/types'
 
 type Point = { x: number; y: number }
 
@@ -49,6 +55,8 @@ export type EntrySaveInput = {
   tagIds: string[]
   activityId: string | null
   clientIds: string[]
+  requestIds: string[]
+  taskIds: string[]
   start?: Date
   end?: Date
 }
@@ -60,6 +68,8 @@ type Fields = {
   billable: boolean
   activityId: string
   clientIds: string[]
+  requestIds: string[]
+  taskIds: string[]
   start: Date | null
   end: Date | null
 }
@@ -118,34 +128,43 @@ function EntryMetaChips({
   projectId,
   activityId,
   clientIds,
+  requestIds,
+  taskIds,
   description,
   billable,
   projects,
   activities,
   clients,
   projectClients,
+  stacked = false,
   onChange,
 }: {
   workspaceId: string
   projectId: string
   activityId: string
   clientIds: string[]
+  requestIds: string[]
+  taskIds: string[]
   description: string
   billable: boolean
   projects: Project[]
   activities: Activity[]
   clients: Client[]
   projectClients: ProjectClient[]
+  stacked?: boolean
   onChange: (next: {
+    workspaceId: string
     projectId: string
     activityId: string
     clientIds: string[]
+    requestIds: string[]
+  taskIds: string[]
     description: string
     billable: boolean
   }) => void
 }) {
-  const choices = projects.filter((project) => project.workspace_id === workspaceId)
-  const project = choices.find((item) => item.id === projectId)
+  const project = projects.find((item) => item.id === projectId)
+  const scopeWorkspaceId = project?.workspace_id || workspaceId
   const links = projectClients.filter((row) => row.project_id === projectId)
   const mode = clientMode(links)
   const projectActivities = activities.filter((row) => row.project_id === projectId)
@@ -153,18 +172,66 @@ function EntryMetaChips({
   const linkedClients = links
     .map((row) => clients.find((item) => item.id === row.client_id))
     .filter((item): item is Client => Boolean(item))
+  const workspaceRequests = useQuery({
+    queryKey: qk.requests(`${scopeWorkspaceId}-picker`),
+    enabled: Boolean(scopeWorkspaceId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('requests')
+        .select('id, task_number, request')
+        .eq('workspace_id', scopeWorkspaceId)
+        .order('logged_on', { ascending: false })
+        .order('task_number', { ascending: false })
+      if (error) throw error
+      return (data ?? []) as { id: string; task_number: number; request: string }[]
+    },
+  })
+  const requestRows = workspaceRequests.data ?? []
+  const workspaceTasks = useQuery({
+    queryKey: qk.tasks(`${scopeWorkspaceId}-picker`),
+    enabled: Boolean(scopeWorkspaceId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('id, task_number, task')
+        .eq('workspace_id', scopeWorkspaceId)
+        .order('logged_on', { ascending: false })
+        .order('task_number', { ascending: false })
+      if (error) throw error
+      return (data ?? []) as { id: string; task_number: number; task: string }[]
+    },
+  })
+  const taskRows = workspaceTasks.data ?? []
+
+  function requestIdLabel(row: { task_number: number }) {
+    return requestCode(row.task_number)
+  }
+
+  function requestLabel(row: { task_number: number; request: string }) {
+    return `${requestIdLabel(row)} · ${row.request}`
+  }
+
+  const linkedRequests = requestIds
+    .map((id) => requestRows.find((row) => row.id === id))
+    .filter((row): row is { id: string; task_number: number; request: string } => Boolean(row))
+  const linkedTasks = taskIds
+    .map((id) => taskRows.find((row) => row.id === id))
+    .filter((row): row is { id: string; task_number: number; task: string } => Boolean(row))
 
   function applyProject(nextProjectId: string) {
-    const nextProject = choices.find((item) => item.id === nextProjectId)
+    const nextProject = projects.find((item) => item.id === nextProjectId)
     const nextLinks = projectClients.filter((row) => row.project_id === nextProjectId)
     const nextMode = clientMode(nextLinks)
     const keptActivity = activities.find((row) => row.id === activityId && row.project_id === nextProjectId)
     const allowed = new Set(nextLinks.map((row) => row.client_id))
     onChange({
+      workspaceId: nextProject?.workspace_id ?? workspaceId,
       projectId: nextProjectId,
       billable: nextProject?.billable ?? billable,
       activityId: keptActivity?.id ?? '',
       clientIds: nextMode === 'manual' ? clientIds.filter((id) => allowed.has(id)) : [],
+      requestIds,
+  taskIds,
       description,
     })
   }
@@ -176,15 +243,19 @@ function EntryMetaChips({
       nextClients = [...nextClients, nextActivity.client_id]
     }
     onChange({
+      workspaceId: scopeWorkspaceId,
       projectId,
       activityId: nextActivityId,
       clientIds: nextClients,
+      requestIds,
+  taskIds,
       description,
       billable,
     })
   }
 
   return (
+    <div className={cn('flex min-w-0 gap-1.5', stacked ? 'flex-col' : 'flex-wrap')}>
     <div className="flex min-w-0 flex-wrap gap-1.5">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -193,7 +264,7 @@ function EntryMetaChips({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {choices.map((item) => (
+          {projects.map((item) => (
             <DropdownMenuItem key={item.id} onSelect={() => applyProject(item.id)}>
               <span className="size-2 shrink-0 rounded-sm" style={{ background: item.color }} aria-hidden="true" />
               {item.name}
@@ -212,7 +283,8 @@ function EntryMetaChips({
             {activity ? (
               <DropdownMenuItem
                 onSelect={() =>
-                  onChange({ projectId, activityId: '', clientIds, description, billable })
+                  onChange({ workspaceId: scopeWorkspaceId, projectId, activityId: '', clientIds, requestIds,
+  taskIds, description, billable })
                 }
               >
                 Clear activity
@@ -253,7 +325,8 @@ function EntryMetaChips({
                   onSelect={(event) => {
                     event.preventDefault()
                     const nextClients = checked ? clientIds.filter((id) => id !== item.id) : [...clientIds, item.id]
-                    onChange({ projectId, activityId, clientIds: nextClients, description, billable })
+                    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds: nextClients, requestIds,
+  taskIds, description, billable })
                   }}
                 >
                   <span className={cn('mr-2 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
@@ -272,14 +345,129 @@ function EntryMetaChips({
           className="pointer-events-none opacity-80"
         />
       ) : null}
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button type="button">
+                <Chip
+                  className="max-w-64"
+                  label={
+                    linkedRequests.length === 0
+                      ? 'Requests'
+                      : linkedRequests.map(requestIdLabel).join(', ')
+                  }
+                  empty={requestIds.length === 0}
+                />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          {linkedRequests.length > 0 ? (
+            <TooltipContent className="max-w-sm">
+              {linkedRequests.length === 1 ? (
+                linkedRequests[0]!.request
+              ) : (
+                <span className="block space-y-1">
+                  {linkedRequests.map((row) => (
+                    <span key={row.id} className="block">
+                      {requestIdLabel(row)} · {row.request}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </TooltipContent>
+          ) : null}
+        </Tooltip>
+        <DropdownMenuContent className="w-80">
+          {requestRows.length === 0 ? (
+            <DropdownMenuItem disabled>No requests</DropdownMenuItem>
+          ) : (
+            requestRows.map((item) => {
+              const checked = requestIds.includes(item.id)
+              return (
+                <DropdownMenuItem
+                  key={item.id}
+                  className="min-w-0"
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    const nextRequests = checked ? requestIds.filter((id) => id !== item.id) : [...requestIds, item.id]
+                    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds: nextRequests, taskIds, description, billable })
+                  }}
+                >
+                  <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
+                    {checked ? '✓' : '○'}
+                  </span>
+                  <span className="min-w-0 truncate">{requestLabel(item)}</span>
+                </DropdownMenuItem>
+              )
+            })
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button type="button">
+                <Chip
+                  className="max-w-64"
+                  label={linkedTasks.length === 0 ? 'Tasks' : linkedTasks.map((row) => taskCode(row.task_number)).join(', ')}
+                  empty={taskIds.length === 0}
+                />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          {linkedTasks.length > 0 ? (
+            <TooltipContent className="max-w-sm">
+              {linkedTasks.length === 1 ? (
+                linkedTasks[0]!.task
+              ) : (
+                <span className="block space-y-1">
+                  {linkedTasks.map((row) => (
+                    <span key={row.id} className="block">
+                      {taskCode(row.task_number)} · {row.task}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </TooltipContent>
+          ) : null}
+        </Tooltip>
+        <DropdownMenuContent className="w-80">
+          {taskRows.length === 0 ? (
+            <DropdownMenuItem disabled>No tasks</DropdownMenuItem>
+          ) : (
+            taskRows.map((item) => {
+              const checked = taskIds.includes(item.id)
+              return (
+                <DropdownMenuItem
+                  key={item.id}
+                  className="min-w-0"
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    const nextTasks = checked ? taskIds.filter((id) => id !== item.id) : [...taskIds, item.id]
+                    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds, taskIds: nextTasks, description, billable })
+                  }}
+                >
+                  <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
+                    {checked ? '✓' : '○'}
+                  </span>
+                  <span className="min-w-0 truncate">{taskCode(item.task_number)} · {item.task}</span>
+                </DropdownMenuItem>
+              )
+            })
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      </div>
     </div>
   )
 }
 
 function EntryEditor({
   draft,
-  workspaces,
-  showWorkspace,
   projects,
   activities,
   clients,
@@ -292,8 +480,6 @@ function EntryEditor({
   onContinue,
 }: {
   draft: Draft | null
-  workspaces: Workspace[]
-  showWorkspace: boolean
   projects: Project[]
   activities: Activity[]
   clients: Client[]
@@ -319,6 +505,8 @@ function EntryEditor({
     billable: true,
     activityId: '',
     clientIds: [],
+    requestIds: [],
+    taskIds: [],
     start: null,
     end: null,
   })
@@ -336,6 +524,8 @@ function EntryEditor({
       billable: entry?.billable ?? true,
       activityId: entry?.activity_id ?? '',
       clientIds: entry?.time_entry_clients?.map((row) => row.client_id) ?? [],
+      requestIds: entry?.time_entry_requests?.map((row) => row.request_id) ?? [],
+      taskIds: entry?.time_entry_tasks?.map((row) => row.task_id) ?? [],
       start: draft.start ?? (entry ? new Date(entry.started_at) : null),
       end: draft.end ?? (entry?.stopped_at ? new Date(entry.stopped_at) : null),
     }
@@ -344,7 +534,6 @@ function EntryEditor({
     setConfirmDelete(false)
   }, [draft])
 
-  const choices = projects.filter((project) => project.workspace_id === fields.workspaceId)
   const label = draft?.mode === 'edit' ? 'Logged entry' : draft?.mode === 'start' ? 'Start timer' : 'New entry'
   const duration =
     fields.start && fields.end ? formatDuration(Math.max(0, Math.round((fields.end.getTime() - fields.start.getTime()) / 1000))) : null
@@ -352,16 +541,19 @@ function EntryEditor({
   function payload(next: Fields): EntrySaveInput | null {
     if (!draft || !next.projectId) return null
     const nextMode = clientMode(projectClients.filter((row) => row.project_id === next.projectId))
+    const workspaceId = projects.find((project) => project.id === next.projectId)?.workspace_id || next.workspaceId
     return {
       mode: draft.mode,
       id: draft.entry?.id,
-      workspaceId: next.workspaceId,
+      workspaceId,
       projectId: next.projectId,
       description: next.description,
       billable: next.billable,
       tagIds: [],
       activityId: next.activityId || null,
       clientIds: nextMode === 'manual' ? next.clientIds : [],
+      requestIds: next.requestIds,
+      taskIds: next.taskIds,
       start: next.start ?? undefined,
       end: next.end ?? undefined,
     }
@@ -429,7 +621,7 @@ function EntryEditor({
             if (confirmDelete || insidePicker(event)) event.preventDefault()
           }}
         >
-          {choices.length === 0 ? (
+          {projects.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No projects yet. Add one in{' '}
               <Link to="/projects" className="underline underline-offset-2">
@@ -481,34 +673,20 @@ function EntryEditor({
                   </DropdownMenu>
                 ) : null}
               </div>
-              {showWorkspace ? (
-                <select
-                  aria-label="Workspace"
-                  className="h-8 rounded-md border border-border bg-background px-2 text-sm"
-                  value={fields.workspaceId}
-                  onChange={(event) => {
-                    const workspaceId = event.target.value
-                    void commit({ ...fields, workspaceId, projectId: '', activityId: '', clientIds: [] })
-                  }}
-                >
-                  {workspaces.map((workspace) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
               <EntryMetaChips
                 workspaceId={fields.workspaceId}
                 projectId={fields.projectId}
                 activityId={fields.activityId}
                 clientIds={fields.clientIds}
+                requestIds={fields.requestIds}
+                taskIds={fields.taskIds}
                 description={fields.description}
                 billable={fields.billable}
                 projects={projects}
                 activities={activities}
                 clients={clients}
                 projectClients={projectClients}
+                stacked
                 onChange={(next) => void commit({ ...fields, ...next })}
               />
               {draft?.mode !== 'start' && fields.start && fields.end ? (
@@ -567,8 +745,10 @@ function EntryEditor({
                     onClick={() => {
                       if (!onContinue) return
                       const nextMode = clientMode(projectClients.filter((row) => row.project_id === fields.projectId))
+                      const workspaceId =
+                        projects.find((project) => project.id === fields.projectId)?.workspace_id || fields.workspaceId
                       onContinue({
-                        workspaceId: fields.workspaceId,
+                        workspaceId,
                         projectId: fields.projectId || null,
                         description: fields.description,
                         billable: fields.billable,

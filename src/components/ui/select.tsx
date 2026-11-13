@@ -66,9 +66,8 @@ function SelectContent({
             <SelectItem value="__no-matches" disabled>
               No matches
             </SelectItem>
-          ) : (
-            filtered.children
-          )}
+          ) : null}
+          {filtered.children}
         </SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>

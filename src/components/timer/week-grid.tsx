@@ -8,7 +8,7 @@ import { formatDuration } from '@/lib/splits'
 import type { Client, ProjectClient, TimeEntry } from '@/types'
 
 import { useTimerGridZoom } from './use-timer-grid-zoom'
-import { DAY_MS, DEFAULT_HOUR_PX, dayBounds, heightFor, hourPxFor, inkOn, layoutDay, snap, topFor } from './week-layout'
+import { DAY_MS, DEFAULT_HOUR_PX, dayBounds, heightFor, hourPxFor, inkOn, labelPxFor, layoutDay, snap, topFor } from './week-layout'
 
 type Draft = { day: number; startY: number; endY: number }
 type Preview = { id: string; start: number; end: number }
@@ -65,6 +65,7 @@ function WeekGrid({
   const scroller = useRef<HTMLDivElement>(null)
   const { zoom, canZoomOut, canZoomIn, canReset, zoomOut, zoomIn, reset } = useTimerGridZoom()
   const hourPx = hourPxFor(zoom)
+  const labelPx = labelPxFor(zoom)
   const hourPxRef = useRef(hourPx)
   const alignedNowAt = useRef(0)
   const nowRef = useRef(now)
@@ -289,10 +290,10 @@ function WeekGrid({
                       height: heightFor(slice.start, slice.end, hourPx),
                       left: `calc(${(slice.lane / slice.lanes) * 100}% + 2px)`,
                       width: `calc(${100 / slice.lanes}% - 4px)`,
-                      background: running ? `color-mix(in srgb, ${color} 42%, transparent)` : color,
-                      color: running ? color : inkOn(color),
+                      background: running ? `color-mix(in srgb, ${color} var(--running-fill), transparent)` : color,
+                      color: inkOn(color),
                       borderRadius: 4,
-                      border: running ? `1px dotted ${color}` : undefined,
+                      border: running ? `2px dotted ${color}` : undefined,
                       cursor: running ? 'default' : 'grab',
                     }}
                     onPointerDown={(event) => {
@@ -325,6 +326,7 @@ function WeekGrid({
                         <DescriptionField
                           value={slice.entry.description}
                           placeholder={projectClientLabel(slice.entry, clients, projectClients)}
+                          fontSize={labelPx}
                           onSave={(description) => onDescribe(slice.entry.id, description)}
                         />
                         <p className="shrink-0 font-mono text-[10px] tabular-nums leading-tight">
@@ -333,7 +335,7 @@ function WeekGrid({
                       </div>
                     ) : (
                       <>
-                        <p className="truncate text-[11px] font-medium leading-tight">
+                        <p className="truncate font-medium leading-tight" style={{ fontSize: labelPx }}>
                           {entryLabel(slice.entry, clients, projectClients)}
                         </p>
                         {slice.end - slice.start > 20 * 60 * 1000 ? (
@@ -432,10 +434,12 @@ function WeekGrid({
 function DescriptionField({
   value,
   placeholder,
+  fontSize,
   onSave,
 }: {
   value: string
   placeholder: string
+  fontSize: number
   onSave: (description: string) => void
 }) {
   return (
@@ -445,7 +449,8 @@ function DescriptionField({
       data-hover="wash"
       defaultValue={value}
       placeholder={placeholder || 'Description'}
-      className="min-w-0 flex-1 rounded-[2px] bg-transparent px-1 text-[11px] leading-tight outline-none transition-colors duration-75 hover:bg-[color-mix(in_srgb,black_8%,transparent)] placeholder:text-current placeholder:opacity-60"
+      style={{ fontSize }}
+      className="min-w-0 flex-1 rounded-[2px] bg-transparent px-1 leading-tight outline-none transition-colors duration-75 hover:bg-[color-mix(in_srgb,black_8%,transparent)] placeholder:text-current placeholder:opacity-60"
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation()

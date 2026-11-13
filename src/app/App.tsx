@@ -12,10 +12,11 @@ import { InvitePage } from '@/pages/invite-page'
 import { LoginPage } from '@/pages/login-page'
 import { ProjectsPage } from '@/pages/projects-page'
 import { RequestsPage } from '@/pages/requests-page'
+import { TasksPage } from '@/pages/tasks-page'
 import { SettingsPage } from '@/pages/settings-page'
 import { SignupPage } from '@/pages/signup-page'
 import { TimerPage } from '@/pages/timer-page'
-import { TimesheetPage } from '@/pages/timesheet-page'
+import { ReportPage } from '@/pages/reports-page'
 
 function Guard({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
@@ -81,8 +82,9 @@ export function App() {
       >
         <Route path="/" element={<Navigate to="/timer" replace />} />
         <Route path="/timer" element={<TimerPage />} />
-        <Route path="/timesheet" element={<TimesheetPage />} />
+        <Route path="/reports" element={<ReportPage />} />
         <Route path="/requests" element={<RequestsPage />} />
+        <Route path="/tasks" element={<TasksPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

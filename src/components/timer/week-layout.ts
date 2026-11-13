@@ -13,6 +13,15 @@ export function hourPxFor(zoom: number) {
   return DEFAULT_HOUR_PX * zoom
 }
 
+const LABEL_PX_MIN = 12
+const LABEL_PX_MAX = 14
+const ZOOM_MAX = ZOOM_STEPS[ZOOM_STEPS.length - 1]
+
+export function labelPxFor(zoom: number) {
+  const t = (zoom - DEFAULT_ZOOM) / (ZOOM_MAX - DEFAULT_ZOOM)
+  return Math.min(LABEL_PX_MAX, Math.max(LABEL_PX_MIN, LABEL_PX_MIN + t * (LABEL_PX_MAX - LABEL_PX_MIN)))
+}
+
 export function snap(ms: number) {
   return Math.round(ms / SNAP_MS) * SNAP_MS
 }

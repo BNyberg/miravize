@@ -43,7 +43,8 @@ function DropdownMenuContent({
         {filter ? <MenuFilterField value={query} onChange={setQuery} /> : null}
         {filter ? (
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            {empty ? <DropdownMenuItem disabled>No matches</DropdownMenuItem> : filtered.children}
+            {empty ? <DropdownMenuItem disabled>No matches</DropdownMenuItem> : null}
+            {filtered.children}
           </div>
         ) : (
           children

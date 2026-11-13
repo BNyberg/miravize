@@ -7,24 +7,7 @@ const cors = {
 
 type Body = {
   workspace_id: string
-  screenshot_path: string
-  note: string
-  submission_id: string
-}
-
-function parseNote(note: string) {
-  const parts = note.split('|').map((p) => p.trim())
-  return {
-    project: parts[0] ?? '',
-    website: parts[1] ?? '',
-    additional_notes: parts.slice(2).join(' | '),
-  }
-}
-
-function normalize(raw: string, aliases: { shortcut: string; name: string }[]) {
-  const value = raw.trim()
-  const match = aliases.find((a) => a.shortcut.toLowerCase() === value.toLowerCase())
-  return match ? match.name : value
+  images: { media_type: string; data: string }[]
 }
 
 Deno.serve(async (req) => {
@@ -33,7 +16,6 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) throw new Error('Missing Authorization')
@@ -45,7 +27,8 @@ Deno.serve(async (req) => {
     if (userErr || !userData.user) throw new Error('Not authenticated')
 
     const body = (await req.json()) as Body
-    const admin = createClient(supabaseUrl, serviceKey)
+    const images = (body.images ?? []).filter((image) => image.data)
+    if (images.length === 0) return json({ error: 'Attach a screenshot.' }, 400)
 
     const { data: member } = await userClient
       .from('workspace_members')
@@ -55,62 +38,49 @@ Deno.serve(async (req) => {
       .maybeSingle()
     if (!member) throw new Error('Not allowed')
 
-    const { data: existing } = await userClient
-      .from('requests')
-      .select('*, project:projects(name)')
-      .eq('workspace_id', body.workspace_id)
-      .eq('submission_id', body.submission_id)
-      .maybeSingle()
-    if (existing) {
-      return json({
-        task_number: existing.task_number,
-        requester: existing.requester,
-        project: existing.project?.name,
-        request: existing.request,
-      })
-    }
-
-    const parsed = parseNote(body.note ?? '')
-    const { data: file, error: dlErr } = await admin.storage.from('request-screenshots').download(body.screenshot_path)
-    if (dlErr || !file) {
-      return json({ error: 'Could not read screenshot.', ...parsed }, 400)
-    }
-
     if (!anthropicKey) {
-      return json({ error: 'ANTHROPIC_API_KEY is not configured.', ...parsed }, 400)
+      return json({ error: 'ANTHROPIC_API_KEY is not configured.', requester: '', request: '' }, 400)
     }
 
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    let binary = ''
-    const chunk = 0x8000
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-    }
-    const b64 = btoa(binary)
-    const mediaType = file.type || 'image/png'
+    const prompt = `You are a strict JSON extractor. You must return ONLY a single valid JSON object and nothing else — no markdown, no explanations, no preamble, no trailing text.
 
-    const prompt = `You extract a support request from a screenshot.
-Return ONLY JSON: {"requester": string, "request": string}
-Requester is the person asking for support.
-Request is a clear, concise summary preserving important details.
-Do not invent missing information. Do not add status, priority, or due dates.
-If a field cannot be determined, use an empty string.`
+Schema:
+{
+  "requester": string,
+  "request": string
+}
+
+Rules:
+- requester = the human asking for help, not a bot or system message.
+- request = the problem they need help with. If an error, failure, or blocked message is visible, summarize that. Ignore greetings, mentions, timestamps, and request ids.
+- Do not invent information that is not visible.
+- Use an empty string only when that field is not in the image at all.
+
+Output format example (do not copy the values, only the structure):
+{"requester":"Sasha","request":"Request was blocked with 403 Forbidden"}
+
+Now extract from the image.`
 
     const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2026-10-21',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5-5',
         max_tokens: 400,
+        thinking: { type: 'between_tools' },
+        output_config: { effort: 'low' },
         messages: [
           {
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+              ...images.map((image) => ({
+                type: 'image' as const,
+                source: { type: 'base64' as const, media_type: image.media_type || 'image/png', data: image.data },
+              })),
               { type: 'text', text: prompt },
             ],
           },
@@ -118,58 +88,27 @@ If a field cannot be determined, use an empty string.`
       }),
     })
     if (!aiRes.ok) {
-      return json({ error: 'Vision extraction failed.', ...parsed }, 400)
+      const failed = await aiRes.json().catch(() => null) as { error?: { message?: string } } | null
+      const message = failed?.error?.message || 'Vision extraction failed.'
+      console.error('extract-request anthropic', aiRes.status, message)
+      return json({ error: message, requester: '', request: '' }, 400)
     }
     const aiJson = await aiRes.json()
-    const text: string = aiJson.content?.[0]?.text ?? '{}'
-    const extracted = JSON.parse(text.replace(/```json|```/g, '').trim()) as { requester?: string; request?: string }
-
-    const { data: aliasRows } = await userClient
-      .from('project_aliases')
-      .select('shortcut, project:projects(name, id)')
-      .eq('workspace_id', body.workspace_id)
-    const aliases = (aliasRows ?? []).map((row: { shortcut: string; project: { name: string; id: string } | { name: string; id: string }[] | null }) => {
-      const project = Array.isArray(row.project) ? row.project[0] : row.project
-      return { shortcut: row.shortcut, name: project?.name ?? row.shortcut, id: project?.id }
+    const blocks = Array.isArray(aiJson.content) ? aiJson.content : []
+    const textBlock = blocks.find((block: { type?: string }) => block.type === 'text') as { text?: string } | undefined
+    const text: string = textBlock?.text ?? ''
+    console.error('extract-request reply', {
+      stop_reason: aiJson.stop_reason,
+      types: blocks.map((block: { type?: string }) => block.type),
+      text,
     })
-    const official = normalize(parsed.project, aliases)
-
-    const { data: projects } = await userClient.from('projects').select('id, name').eq('workspace_id', body.workspace_id)
-    const project = (projects ?? []).find((p: { name: string }) => p.name.toLowerCase() === official.toLowerCase())
-    if (!project) {
-      return json({
-        error: `Unknown project "${official || parsed.project}".`,
-        requester: extracted.requester ?? '',
-        request: extracted.request ?? '',
-        project: official || parsed.project,
-        website: parsed.website,
-        additional_notes: parsed.additional_notes,
-      }, 400)
-    }
-
-    const loggedOn = new Date().toISOString().slice(0, 10)
-    const { data: saved, error: saveErr } = await userClient.rpc('log_support_request', {
-      p_workspace_id: body.workspace_id,
-      p_submission_id: body.submission_id,
-      p_requester: extracted.requester || '',
-      p_request: extracted.request || '',
-      p_project_id: project.id,
-      p_website: parsed.website,
-      p_additional_notes: parsed.additional_notes,
-      p_screenshot_path: body.screenshot_path,
-      p_logged_on: loggedOn,
-    })
-    if (saveErr || !saved) {
-      return json({ error: saveErr?.message ?? 'Could not save request.', ...parsed, requester: extracted.requester, request: extracted.request }, 400)
-    }
-
-    return json({
-      task_number: saved.task_number,
-      requester: saved.requester,
-      project: project.name,
-      request: saved.request,
-    })
+    const extracted = JSON.parse(text.replace(/```json|```/g, '').trim() || '{}') as { requester?: string; request?: string }
+    const requester = extracted.requester ?? ''
+    const request = extracted.request ?? ''
+    if (!requester || !request) console.error('extract-request empty', { requester, request })
+    return json({ requester, request })
   } catch (error) {
+    console.error('extract-request', error)
     return json({ error: error instanceof Error ? error.message : 'Unknown error' }, 400)
   }
 })

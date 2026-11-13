@@ -39,7 +39,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
-import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
+import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
 import { formatDuration } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
@@ -71,7 +71,7 @@ function useNarrow() {
 
 export function TimerPage() {
   const { user } = useAuth()
-  const { workspaceId, isAll, workspaces } = useWorkspace()
+  const { workspaceId, isAll } = useWorkspace()
   const catalog = useCatalog()
   const narrow = useNarrow()
   const [anchor, setAnchor] = useState(() => new Date())
@@ -118,7 +118,6 @@ export function TimerPage() {
   }, [entries.data, running])
 
   const elapsed = running ? Math.floor((now - new Date(running.started_at).getTime()) / 1000) : 0
-  const defaultWorkspace = isAll ? (workspaces[0]?.id ?? '') : workspaceId
 
   async function refresh() {
     await qc.invalidateQueries({ queryKey: ['entries'] })
@@ -136,6 +135,8 @@ export function TimerPage() {
         source: 'manual',
         activityId: input.activityId,
         clientIds: input.clientIds,
+        requestIds: input.requestIds,
+        taskIds: input.taskIds,
       })
       return
     }
@@ -151,6 +152,8 @@ export function TimerPage() {
         stoppedAt: input.end,
         activityId: input.activityId,
         clientIds: input.clientIds,
+        requestIds: input.requestIds,
+        taskIds: input.taskIds,
       })
       return
     }
@@ -166,6 +169,8 @@ export function TimerPage() {
       stoppedAt: input.end,
       activityId: input.activityId,
       clientIds: input.clientIds,
+      requestIds: input.requestIds,
+        taskIds: input.taskIds,
     })
   }
 
@@ -211,6 +216,8 @@ export function TimerPage() {
       projectId: string
       activityId: string
       clientIds: string[]
+      requestIds: string[]
+      taskIds: string[]
       description: string
       billable: boolean
     }) => {
@@ -223,6 +230,8 @@ export function TimerPage() {
         billable: input.billable,
         activityId: input.activityId || null,
         clientIds: input.clientIds,
+        requestIds: input.requestIds,
+        taskIds: input.taskIds,
       })
     },
     onSuccess: refresh,
@@ -417,9 +426,11 @@ export function TimerPage() {
               projectId={running.project_id ?? ''}
               activityId={running.activity_id ?? ''}
               clientIds={running.time_entry_clients?.map((row) => row.client_id) ?? []}
+              requestIds={running.time_entry_requests?.map((row) => row.request_id) ?? []}
+              taskIds={running.time_entry_tasks?.map((row) => row.task_id) ?? []}
               description={running.description}
               billable={running.billable}
-              projects={catalog.projects}
+              projects={catalog.projects.filter((project) => project.workspace_id === running.workspace_id)}
               activities={catalog.activities}
               clients={catalog.clients}
               projectClients={catalog.projectClients}
@@ -565,7 +576,7 @@ export function TimerPage() {
         onCreate={(start, end, point) =>
           openDraft({
             mode: 'create',
-            workspaceId: defaultWorkspace === ALL_WORKSPACES ? '' : defaultWorkspace,
+            workspaceId: isAll ? '' : workspaceId,
             start,
             end,
             point,
@@ -587,8 +598,6 @@ export function TimerPage() {
       />
       <EntryEditor
         draft={draft}
-        workspaces={workspaces}
-        showWorkspace={isAll}
         projects={catalog.projects}
         activities={catalog.activities}
         clients={catalog.clients}

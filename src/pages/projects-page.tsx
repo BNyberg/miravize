@@ -146,7 +146,7 @@ function ActivityRenameDialog({
   const [saving, setSaving] = useState(false)
   const name = open && activity ? (draft?.id === activity.id ? draft.name : activity.name) : ''
   const trimmed = name.trim()
-  const dirty = Boolean(activity) && trimmed.length > 0 && trimmed !== activity.name.trim()
+  const dirty = activity != null && trimmed.length > 0 && trimmed !== activity.name.trim()
 
   return (
     <Dialog
@@ -778,9 +778,11 @@ function ClientEditor({
           </>
         ) : null}
         {canManage ? (
-          <Button className="mt-4" onClick={() => void save()} disabled={!clientDirty} loading={saving}>
-            Save client
-          </Button>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={() => void save()} disabled={!clientDirty} loading={saving}>
+              Save client
+            </Button>
+          </div>
         ) : null}
         <ActivityRenameDialog
           activity={renaming}
@@ -1530,9 +1532,6 @@ function ProjectEditor({
         </div>
         {canManage ? (
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button onClick={() => void save()} disabled={!projectDirty} loading={saving}>
-              Save project
-            </Button>
             {editing ? (
               <Button
                 variant="destructive"
@@ -1544,6 +1543,9 @@ function ProjectEditor({
                 Delete project
               </Button>
             ) : null}
+            <Button className="ml-auto" onClick={() => void save()} disabled={!projectDirty} loading={saving}>
+              Save project
+            </Button>
             {saveHint ? <p className="mt-0 basis-full text-sm text-destructive">{saveHint}</p> : null}
           </div>
         ) : null}
@@ -1573,7 +1575,7 @@ function ProjectEditor({
           }}
           onSave={(next) => {
             const previous = renamingDraft
-            if (!previous) return
+            if (!previous) return false
             if (draftActivities.some((item) => item !== previous && item.toLowerCase() === next.toLowerCase())) {
               toast({ tone: 'error', title: 'Could not rename activity', description: 'An activity with this name already exists.' })
               return false

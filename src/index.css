@@ -27,6 +27,7 @@
   --sidebar: #efede8;
   --sidebar-foreground: #1c1b19;
   --sidebar-border: #ddd9d2;
+  --running-fill: 78%;
 }
 
 .dark {
@@ -51,6 +52,7 @@
   --sidebar: #10100f;
   --sidebar-foreground: #e8e6e1;
   --sidebar-border: #2a2a28;
+  --running-fill: 42%;
 }
 
 @theme inline {
@@ -113,9 +115,9 @@
   }
 
   input:focus-visible,
-  textarea:focus-visible {
+  textarea:focus-visible,
+  [contenteditable]:focus-visible {
     outline: none;
-    box-shadow: inset 0 0 0 1px var(--ring);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -185,6 +187,7 @@
 }
 
 .sidebar-fade {
+  white-space: nowrap;
   opacity: 1;
   visibility: visible;
   transition:
@@ -203,6 +206,85 @@
   transition-delay: 80ms;
 }
 
+.app-shell aside .sidebar-panel {
+  transition:
+    padding-left 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-right 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-shell[data-collapsed='true'] aside .sidebar-panel {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.app-shell aside .sidebar-brand {
+  transition: padding-left 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-shell[data-collapsed='true'] aside .sidebar-brand {
+  padding-left: 0.5rem;
+}
+
+.app-shell aside .sidebar-nav-link,
+.app-shell aside .sidebar-workspace-trigger,
+.app-shell aside .sidebar-account {
+  width: 100%;
+  min-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  transition:
+    width 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-left 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-left 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-right 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-top 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-bottom 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 150ms ease;
+}
+
+.app-shell aside .sidebar-account {
+  height: 2.25rem;
+  padding: 0.125rem 0.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.app-shell aside .sidebar-account button {
+  height: 2rem;
+  width: 2rem;
+}
+
+.app-shell[data-collapsed='true'] aside .sidebar-nav-link,
+.app-shell[data-collapsed='true'] aside .sidebar-workspace-trigger,
+.app-shell[data-collapsed='true'] aside .sidebar-account {
+  width: 2.25rem;
+  margin-left: 0.375rem;
+}
+
+.app-shell[data-collapsed='true'] aside .sidebar-nav-link,
+.app-shell[data-collapsed='true'] aside .sidebar-workspace-trigger {
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
+}
+
+.app-shell[data-collapsed='true'] aside .sidebar-account {
+  height: 2.25rem;
+  padding: 0.125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-shell[data-collapsed='true'] aside .sidebar-account .sidebar-fade {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):not(:disabled),
 textarea:not(:disabled),
 [data-slot='select-trigger']:not(:disabled),
@@ -217,6 +299,29 @@ textarea:not(:disabled):not([data-hover='wash']):hover,
 [data-slot='date-trigger']:not(:disabled):hover,
 [data-slot='date-trigger'][data-state='open'] {
   background-color: var(--muted);
+}
+
+.app-shell aside .sidebar-toggle-chip {
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    background-color 150ms ease;
+}
+
+.app-shell aside:hover .sidebar-toggle-chip,
+.app-shell aside .sidebar-toggle:hover .sidebar-toggle-chip,
+.app-shell aside .sidebar-toggle:focus-visible .sidebar-toggle-chip {
+  opacity: 1;
+}
+
+.sidebar-workspace-trigger {
+  position: relative;
+}
+
+.sidebar-workspace-trigger svg:last-of-type {
+  transition:
+    opacity 120ms ease,
+    visibility 120ms ease;
 }
 
 .app-shell[data-collapsed='true'] aside .sidebar-workspace-trigger svg:last-of-type {

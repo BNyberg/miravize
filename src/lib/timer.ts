@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase'
 
 export const ENTRY_SELECT =
-  '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_tags(tag_id, tags(*))'
+  '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_tags(tag_id, tags(*)), time_entry_requests(request_id), time_entry_tasks(task_id)'
 
 export async function startTimer(input: {
   workspaceId: string
@@ -12,6 +12,8 @@ export async function startTimer(input: {
   source?: 'manual' | 'quick_start'
   activityId?: string | null
   clientIds?: string[]
+  requestIds?: string[]
+  taskIds?: string[]
 }) {
   const { data, error } = await supabase.rpc('start_time_entry', {
     p_workspace_id: input.workspaceId,
@@ -24,6 +26,8 @@ export async function startTimer(input: {
   if (error) throw error
   const entry = data as { id: string }
   await applyEntryExtras(entry.id, input.workspaceId, input.activityId ?? null, input.clientIds ?? [])
+  if (input.requestIds) await replaceEntryRequests(entry.id, input.workspaceId, input.requestIds)
+  if (input.taskIds) await replaceEntryTasks(entry.id, input.workspaceId, input.taskIds)
   return data
 }
 
@@ -63,6 +67,52 @@ async function replaceEntryClients(entryId: string, workspaceId: string, clientI
   if (error) throw error
 }
 
+async function replaceEntryRequests(entryId: string, workspaceId: string, requestIds: string[]) {
+  const { error: clearError } = await supabase.from('time_entry_requests').delete().eq('time_entry_id', entryId)
+  if (clearError) throw clearError
+  const unique = [...new Set(requestIds)]
+  if (unique.length === 0) return
+  const { data, error: lookupError } = await supabase
+    .from('requests')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .in('id', unique)
+  if (lookupError) throw lookupError
+  const allowed = (data ?? []).map((row) => row.id as string)
+  if (allowed.length === 0) return
+  const { error } = await supabase.from('time_entry_requests').insert(
+    allowed.map((requestId) => ({
+      time_entry_id: entryId,
+      request_id: requestId,
+      workspace_id: workspaceId,
+    })),
+  )
+  if (error) throw error
+}
+
+async function replaceEntryTasks(entryId: string, workspaceId: string, taskIds: string[]) {
+  const { error: clearError } = await supabase.from('time_entry_tasks').delete().eq('time_entry_id', entryId)
+  if (clearError) throw clearError
+  const unique = [...new Set(taskIds)]
+  if (unique.length === 0) return
+  const { data, error: lookupError } = await supabase
+    .from('tasks')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .in('id', unique)
+  if (lookupError) throw lookupError
+  const allowed = (data ?? []).map((row) => row.id as string)
+  if (allowed.length === 0) return
+  const { error } = await supabase.from('time_entry_tasks').insert(
+    allowed.map((taskId) => ({
+      time_entry_id: entryId,
+      task_id: taskId,
+      workspace_id: workspaceId,
+    })),
+  )
+  if (error) throw error
+}
+
 export async function createEntry(input: {
   workspaceId: string
   projectId: string
@@ -73,6 +123,8 @@ export async function createEntry(input: {
   stoppedAt: Date
   activityId?: string | null
   clientIds?: string[]
+  requestIds?: string[]
+  taskIds?: string[]
 }) {
   const userId = await currentUserId()
   const { data, error } = await supabase
@@ -103,6 +155,8 @@ export async function createEntry(input: {
     if (tagError) throw tagError
   }
   await replaceEntryClients(data.id, input.workspaceId, input.clientIds ?? [])
+  if (input.requestIds) await replaceEntryRequests(data.id, input.workspaceId, input.requestIds)
+  if (input.taskIds) await replaceEntryTasks(data.id, input.workspaceId, input.taskIds)
   return data
 }
 
@@ -117,10 +171,13 @@ export async function updateEntry(input: {
   stoppedAt: Date
   activityId?: string | null
   clientIds?: string[]
+  requestIds?: string[]
+  taskIds?: string[]
 }) {
   const { error } = await supabase
     .from('time_entries')
     .update({
+      workspace_id: input.workspaceId,
       project_id: input.projectId,
       activity_id: input.activityId ?? null,
       description: input.description,
@@ -144,6 +201,8 @@ export async function updateEntry(input: {
     if (tagError) throw tagError
   }
   await replaceEntryClients(input.id, input.workspaceId, input.clientIds ?? [])
+  if (input.requestIds) await replaceEntryRequests(input.id, input.workspaceId, input.requestIds)
+  if (input.taskIds) await replaceEntryTasks(input.id, input.workspaceId, input.taskIds)
 }
 
 export async function updateRunningEntry(input: {
@@ -154,10 +213,13 @@ export async function updateRunningEntry(input: {
   billable: boolean
   activityId: string | null
   clientIds: string[]
+  requestIds?: string[]
+  taskIds?: string[]
 }) {
   const { error } = await supabase
     .from('time_entries')
     .update({
+      workspace_id: input.workspaceId,
       project_id: input.projectId,
       activity_id: input.activityId,
       description: input.description,
@@ -166,6 +228,8 @@ export async function updateRunningEntry(input: {
     .eq('id', input.id)
   if (error) throw error
   await replaceEntryClients(input.id, input.workspaceId, input.clientIds)
+  if (input.requestIds) await replaceEntryRequests(input.id, input.workspaceId, input.requestIds)
+  if (input.taskIds) await replaceEntryTasks(input.id, input.workspaceId, input.taskIds)
 }
 
 export async function updateEntryDescription(id: string, description: string) {

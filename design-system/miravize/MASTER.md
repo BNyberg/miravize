@@ -4,7 +4,7 @@
 > If that file exists, its rules **override** this Master file.
 > If not, follow the rules below.
 >
-> **Phase:** Graphite Ledger tokens apply across the app. The Timer page is a week time grid. The Projects page follows `design-system/miravize/pages/projects.md`. The app shell uses the collapsible rail below. The running banner, timesheet, requests, settings, and authentication layouts are not migrated yet. Do not restore the previous mint canvas, orange CTA, Plus Jakarta Sans, 12px cards, hover lift, or modal blur. Do not rebuild the chronograph.
+> **Phase:** Graphite Ledger tokens apply across the app. The Timer page is a week time grid. The Projects page follows `design-system/miravize/pages/projects.md`. The app shell uses the collapsible rail below. The running banner, reports, requests, settings, and authentication layouts are not migrated yet. Do not restore the previous mint canvas, orange CTA, Plus Jakarta Sans, 12px cards, hover lift, or modal blur. Do not rebuild the chronograph.
 
 ---
 
@@ -109,7 +109,7 @@ Sidebar width uses 240ms `cubic-bezier(0.22, 1, 0.36, 1)` on `grid-template-colu
 
 Desktop (`md+`) is a two-column grid: **15rem** expanded, **4rem** collapsed. Persist `sidebar-collapsed` in `localStorage`. Collapse is desktop-only; below `md` the sheet stays labeled.
 
-The inner column is a fixed `w-60` with `overflow-hidden` on the aside. Nav is flat: Timer, Timesheet, Requests, Projects, Settings. No search, no nested groups.
+The inner column is a fixed `w-60` with `overflow-hidden` on the aside. Nav is flat: Timer, Report, Requests, Projects, Settings. No search, no nested groups.
 
 User footer is an 8px-radius `bg-card` band (`dark:bg-muted`) with a 1px border — a surface step, not a second hue. Avatar initials, email, theme toggle, and sign out. Collapsed, extras clip and fade; the avatar opens theme and sign out.
 
@@ -119,4 +119,4 @@ A skip link is the first focusable control and targets `main`.
 
 ### Not yet migrated
 
-Running banner, timesheet, requests, settings, and authentication layouts. Shared tokens already apply there.
+Running banner, reports, requests, settings, and authentication layouts. Shared tokens already apply there.

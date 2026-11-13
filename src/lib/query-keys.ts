@@ -10,6 +10,7 @@ export const qk = {
   activities: (ws: string) => ['activities', ws] as const,
   entries: (ws: string, extra?: string) => ['entries', ws, extra ?? ''] as const,
   requests: (ws: string) => ['requests', ws] as const,
+  tasks: (ws: string) => ['tasks', ws] as const,
   members: (ws: string) => ['members', ws] as const,
   invites: (ws: string) => ['invites', ws] as const,
 }

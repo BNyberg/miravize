@@ -1,6 +1,6 @@
 # Miravize
 
-Workspace-scoped time tracker, client timesheets with project hour splits, and an Anthropic-powered support request logger.
+Workspace-scoped time tracker, client reports with project hour splits, and an Anthropic-powered support request logger.
 
 ## Stack
 

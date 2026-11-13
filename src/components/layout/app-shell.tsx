@@ -2,16 +2,17 @@ import {
   Buildings,
   CaretLeft,
   CaretRight,
+  ChartBar,
   Clock,
   DotsThree,
   Folder,
   Gear,
+  CheckSquare,
   List,
   ListChecks,
   Moon,
   SignOut,
   Sun,
-  Table,
 } from '@phosphor-icons/react'
 import { useTheme } from 'next-themes'
 import { useState } from 'react'
@@ -38,8 +39,9 @@ import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/timer', label: 'Timer', icon: Clock },
-  { to: '/timesheet', label: 'Timesheet', icon: Table },
+  { to: '/reports', label: 'Report', icon: ChartBar },
   { to: '/requests', label: 'Requests', icon: ListChecks },
+  { to: '/tasks', label: 'Tasks', icon: CheckSquare },
   { to: '/projects', label: 'Projects', icon: Folder },
   { to: '/settings', label: 'Settings', icon: Gear },
 ]
@@ -67,7 +69,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
             <SelectValue />
           </span>
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="min-w-56">
           <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
           {workspaces.map((ws) => (
             <SelectItem key={ws.id} value={ws.id}>
@@ -88,7 +90,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className={({ isActive }) =>
                 cn(
-                  'flex h-9 items-center gap-2 rounded-md px-2 text-sm transition-colors duration-150 hover:bg-muted',
+                  'sidebar-nav-link flex h-9 items-center gap-2 rounded-md px-2 text-sm whitespace-nowrap transition-colors duration-150 hover:bg-muted',
                   isActive && 'bg-muted font-medium text-foreground',
                 )
               }
@@ -115,7 +117,7 @@ function UserFooter({
   const initials = initialsFromEmail(email)
 
   return (
-    <div className="mt-auto rounded-lg border border-border bg-card p-2 dark:bg-muted">
+    <div className="sidebar-account mt-auto rounded-lg border border-border bg-card p-2 dark:bg-muted">
       <div className="flex items-center gap-1">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -171,7 +173,7 @@ export function AppShell() {
   const timerRoute = pathname === '/timer'
   const projectsRoute = pathname === '/projects'
   const { data: running } = useRunningTimer()
-  const pagePad = running ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/timesheet'
+  const pagePad = running ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/reports'
   const [open, setOpen] = useState(false)
   const { collapsed, toggle } = useSidebarCollapsed()
 
@@ -185,24 +187,26 @@ export function AppShell() {
       <a href="#main" className="skip-link">
         Skip to main content
       </a>
-      <aside className="relative sticky top-0 hidden h-svh border-r border-sidebar-border bg-sidebar md:block">
+      <aside className="relative z-30 sticky top-0 hidden h-svh border-r border-sidebar-border bg-sidebar md:block">
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon"
-          className="absolute right-0 bottom-7 z-20 h-6 w-6 min-h-6 min-w-6 translate-x-1/2 rounded-md border-sidebar-border bg-card"
+          className="sidebar-toggle group absolute top-1/2 right-0 z-20 h-20 w-11 min-h-20 min-w-11 -translate-y-1/2 translate-x-1/2 rounded-md bg-transparent hover:bg-transparent"
           aria-expanded={!collapsed}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           onClick={toggle}
         >
-          {collapsed ? (
-            <CaretRight aria-hidden="true" className="size-3.5" />
-          ) : (
-            <CaretLeft aria-hidden="true" className="size-3.5" />
-          )}
+          <span className="sidebar-toggle-chip flex h-6 w-6 items-center justify-center rounded-md border border-sidebar-border bg-card group-hover:bg-muted">
+            {collapsed ? (
+              <CaretRight aria-hidden="true" className="size-3.5" />
+            ) : (
+              <CaretLeft aria-hidden="true" className="size-3.5" />
+            )}
+          </span>
         </Button>
         <div className="h-full overflow-hidden">
-        <div className="flex h-full w-60 min-w-60 flex-col px-4 pb-4 pt-3">
-          <div className="mb-6 flex h-9 items-center gap-1.5 text-[18px] font-semibold">
+        <div className="sidebar-panel flex h-full w-full min-w-0 flex-col px-4 pb-4 pt-3">
+          <div className="sidebar-brand mb-6 flex h-9 items-center gap-1.5 text-[18px] font-semibold">
             <BrandMark className="size-8" />
             <span className="sidebar-fade truncate">Miravize</span>
           </div>
@@ -245,7 +249,7 @@ export function AppShell() {
               ? 'flex min-h-0 flex-1 flex-col'
               : projectsRoute
                 ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
-                : 'min-h-0 flex-1 overflow-y-auto'
+                : 'min-h-0 min-w-0 flex-1 overflow-y-auto'
           }
         >
           {timerRoute ? null : <RunningBanner />}

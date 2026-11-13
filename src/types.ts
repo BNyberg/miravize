@@ -88,6 +88,55 @@ export type TimeEntry = {
   activity?: Activity | null
   time_entry_clients?: { client_id: string }[]
   time_entry_tags?: { tag_id: string; tags?: Tag }[]
+  time_entry_requests?: {
+    request_id: string
+    request?: {
+      id: string
+      task_number: number
+      request: string
+      requester?: string | null
+      project_id: string | null
+      activity_id?: string | null
+      project?: { name: string } | null
+      request_clients?: { client_id: string }[]
+    } | null
+  }[]
+  time_entry_tasks?: {
+    task_id: string
+    task?: {
+      id: string
+      task_number: number
+      task: string
+      requester?: string | null
+      project_id: string | null
+      activity_id?: string | null
+      project?: { name: string } | null
+      task_clients?: { client_id: string }[]
+    } | null
+  }[]
+}
+
+export type TaskStatus = 'todo' | 'doing' | 'done'
+
+export type Task = {
+  id: string
+  workspace_id: string
+  task_number: number
+  logged_on: string
+  requester: string
+  task: string
+  project_id: string | null
+  activity_id: string | null
+  website: string | null
+  additional_notes: string | null
+  screenshot_path: string | null
+  screenshot_paths: string[]
+  submission_id: string
+  status: TaskStatus
+  created_at: string
+  project?: Project | null
+  activity?: Activity | null
+  task_clients?: { client_id: string }[]
 }
 
 export type SupportRequest = {
@@ -97,12 +146,17 @@ export type SupportRequest = {
   logged_on: string
   requester: string
   request: string
-  project_id: string
+  project_id: string | null
+  activity_id: string | null
   website: string | null
   additional_notes: string | null
   screenshot_path: string | null
+  screenshot_paths: string[]
   submission_id: string
-  project?: Project
+  created_at: string
+  project?: Project | null
+  activity?: Activity | null
+  request_clients?: { client_id: string }[]
 }
 
 export type WorkspaceInvite = {

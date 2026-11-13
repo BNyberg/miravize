@@ -1,0 +1,19 @@
+---
+description: Mandatory error toasts for failed user actions
+alwaysApply: true
+---
+
+# Error toasts
+
+These are product mandates, not optional UX suggestions.
+
+## Failures use an error toast
+
+- A failed user action shows `toast({ tone: 'error', title, description })` from `@/components/ui/toast`.
+- Do not render the failure as inline page text.
+- The title says what failed. The description is the specific message.
+
+## Edge Function errors
+
+- `supabase.functions.invoke` on a non-2xx response sets `error.message` to `Edge Function returned a non-2xx status code`. The function JSON sits on `error.context`.
+- Read that body and toast its `error` string. Do not toast the generic status line.

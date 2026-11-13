@@ -101,6 +101,8 @@ export function RunningBanner() {
       projectId: string
       activityId: string
       clientIds: string[]
+      requestIds: string[]
+      taskIds: string[]
       description: string
       billable: boolean
     }) => {
@@ -113,6 +115,8 @@ export function RunningBanner() {
         billable: input.billable,
         activityId: input.activityId || null,
         clientIds: input.clientIds,
+        requestIds: input.requestIds,
+        taskIds: input.taskIds,
       })
     },
     onSuccess: refresh,
@@ -122,7 +126,9 @@ export function RunningBanner() {
 
   const elapsed = Math.floor((now - new Date(running.started_at).getTime()) / 1000)
   const workspaceName = workspaces.find((workspace) => workspace.id === running.workspace_id)?.name ?? 'Workspace'
-  const projects = otherWorkspace ? (otherProjects.data ?? []) : catalog.projects
+  const projects = (otherWorkspace ? (otherProjects.data ?? []) : catalog.projects).filter(
+    (project) => project.workspace_id === running.workspace_id,
+  )
   const activities = otherWorkspace ? (otherActivities.data ?? []) : catalog.activities
   const clients = otherWorkspace ? (otherClients.data ?? []) : catalog.clients
   const projectClients = otherWorkspace ? (otherProjectClients.data ?? []) : catalog.projectClients
@@ -132,7 +138,7 @@ export function RunningBanner() {
     <div className="flex items-center gap-2 border-b border-border bg-accent/70 px-4 py-3 text-sm backdrop-blur-md md:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {otherWorkspace ? (
-          <span className="inline-flex h-9 max-w-40 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2.5 text-sm">
+          <span className="inline-flex h-8 max-w-40 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2.5 text-sm">
             <Buildings aria-hidden="true" className="size-4 shrink-0" />
             <span className="truncate">{workspaceName}</span>
           </span>
@@ -142,6 +148,8 @@ export function RunningBanner() {
           projectId={running.project_id ?? ''}
           activityId={running.activity_id ?? ''}
           clientIds={running.time_entry_clients?.map((row) => row.client_id) ?? []}
+          requestIds={running.time_entry_requests?.map((row) => row.request_id) ?? []}
+          taskIds={running.time_entry_tasks?.map((row) => row.task_id) ?? []}
           description={running.description}
           billable={running.billable}
           projects={projects}
