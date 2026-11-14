@@ -4,6 +4,7 @@ import { endOfMonth, format, startOfMonth } from 'date-fns'
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,6 +22,8 @@ import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import type { SupportRequest, Task, TimeEntry } from '@/types'
 
+import { downloadReportPdf } from './export-report-pdf'
+
 const ALL = 'all'
 const NO_CLIENT = '__none__'
 const NO_PROJECT = '__none_project__'
@@ -28,7 +31,7 @@ const NO_ACTIVITY = '__none_activity__'
 const NO_REQUESTER = '__none_requester__'
 const PALETTE = ['#1F7A4D', '#0F6B5C', '#1F5E7A', '#2F4A8A', '#5E3A8A', '#8A3A5E', '#B42318', '#9A4A12', '#7A6B1F', '#3D5A3A']
 
-type Money = Record<string, number>
+export type Money = Record<string, number>
 
 type Share = {
   entry: TimeEntry
@@ -40,13 +43,59 @@ type Share = {
   currency: string
 }
 
-type Bucket = { id: string; label: string; color: string; seconds: number }
+export type Bucket = { id: string; label: string; color: string; seconds: number }
 
 type ProjectSplit = { id: string; name: string; seconds: number; money: Money }
 
 type ClientSplit = { id: string; name: string; seconds: number; money: Money; projects: ProjectSplit[] }
 
-type RequestTime = { id: string; label: string; project: string; seconds: number; money: Money }
+type WorkRow = {
+  id: string
+  label: string
+  project: string
+  projectId: string
+  activity: string
+  activityId: string
+  requester: string
+  requesterId: string
+  clientIds: string[]
+  seconds: number
+  money: Money
+}
+
+export type GroupBy = 'client-project' | 'project-client' | 'project-client-activity' | 'project' | 'client' | 'requester' | 'activity'
+
+const GROUP_KEY = 'report-group-by'
+const GROUP_OPTIONS: GroupBy[] = ['client-project', 'project-client', 'project-client-activity', 'project', 'client', 'requester', 'activity']
+
+function readGroupBy(): GroupBy {
+  try {
+    const stored = localStorage.getItem(GROUP_KEY)
+    if (stored && GROUP_OPTIONS.includes(stored as GroupBy)) return stored as GroupBy
+  } catch {
+    /* ignore private mode */
+  }
+  return 'project-client'
+}
+
+function storeGroupBy(value: GroupBy) {
+  try {
+    localStorage.setItem(GROUP_KEY, value)
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+type ReportItem = {
+  projectId: string
+  project: string
+  activityId: string
+  activity: string
+  requesterId: string
+  requester: string
+  clientIds: string[]
+  done: boolean
+}
 
 function addMoney(map: Money, currency: string, amount: number) {
   if (!amount) return
@@ -54,7 +103,7 @@ function addMoney(map: Money, currency: string, amount: number) {
   map[key] = (map[key] ?? 0) + amount
 }
 
-function formatMoney(map: Money) {
+export function formatMoney(map: Money) {
   const parts = Object.entries(map)
   if (parts.length === 0) return '0'
   return parts.map(([currency, amount]) => `${amount.toFixed(2)} ${currency}`).join(' · ')
@@ -68,6 +117,8 @@ export function ReportPage() {
   const [projectId, setProjectId] = useState('')
   const [clientId, setClientId] = useState('')
   const [activityId, setActivityId] = useState('')
+  const [groupBy, setGroupBy] = useState<GroupBy>(readGroupBy)
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   const entries = useQuery({
     queryKey: qk.entries(workspaceId, `${from}-${to}`),
@@ -278,44 +329,8 @@ export function ReportPage() {
       return id === NO_REQUESTER ? 'No requester' : id
     }
 
-    function ranked(map: Map<string, number>, label: (id: string) => string, colorId: (id: string) => string): Bucket[] {
-      return [...map.entries()]
-        .filter(([, seconds]) => seconds > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(([id, seconds], index) => ({
-          id,
-          label: label(id),
-          color: colorFor(colorId(id), index),
-          seconds,
-        }))
-    }
-
-    function requestBuckets(kind: 'project' | 'client' | 'activity' | 'requester'): Bucket[] {
-      const map = new Map<string, number>()
-      for (const req of filteredRequests) {
-        const ids =
-          kind === 'client'
-            ? requestClientIds(req)
-            : kind === 'project'
-              ? [req.project_id ?? NO_PROJECT]
-              : kind === 'activity'
-                ? [req.activity_id ?? NO_ACTIVITY]
-                : [requesterId(req.requester)]
-        for (const id of ids) map.set(id, (map.get(id) ?? 0) + 1)
-      }
-      return ranked(
-        map,
-        (id) => (kind === 'requester' ? requesterLabel(id) : nameFor(id, kind)),
-        (id) => (kind === 'project' ? id : `request-${kind}-${id}`),
-      )
-    }
-
     function requestHours(rows: TimeEntry[], visibleShares: Share[]) {
-      const totals = new Map<string, RequestTime>()
-      const byProject = new Map<string, number>()
-      const byClient = new Map<string, number>()
-      const byRequester = new Map<string, number>()
-      const byActivity = new Map<string, number>()
+      const totals = new Map<string, WorkRow>()
       const known = new Map((requests.data ?? []).map((req) => [req.id, req]))
       for (const entry of rows) {
         const links = entry.time_entry_requests ?? []
@@ -327,23 +342,9 @@ export function ReportPage() {
           const req = link.request
           const full = known.get(link.request_id)
           const id = link.request_id
-          const current = totals.get(id) ?? {
-            id,
-            label: req ? `${requestCode(req.task_number)} · ${req.request}` : 'Request',
-            project: req?.project?.name ?? (req?.project_id ? nameFor(req.project_id, 'project') : 'No project'),
-            seconds: 0,
-            money: {},
-          }
-          current.seconds += seconds
-          for (const share of entryShares) addMoney(current.money, share.currency, share.amount / shareCount)
-          totals.set(id, current)
-
           const projectIdForRequest = full?.project_id ?? req?.project_id ?? NO_PROJECT
           const activityIdForRequest = full?.activity_id ?? req?.activity_id ?? NO_ACTIVITY
-          byProject.set(projectIdForRequest, (byProject.get(projectIdForRequest) ?? 0) + seconds)
-          byActivity.set(activityIdForRequest, (byActivity.get(activityIdForRequest) ?? 0) + seconds)
           const who = requesterId(full?.requester ?? req?.requester)
-          byRequester.set(who, (byRequester.get(who) ?? 0) + seconds)
           const clientIds = full
             ? requestClientIds(full)
             : requestClientIds({
@@ -351,17 +352,25 @@ export function ReportPage() {
                 activity_id: req?.activity_id ?? null,
                 request_clients: req?.request_clients,
               } as SupportRequest)
-          const each = clientIds.length > 0 ? seconds / clientIds.length : 0
-          for (const client of clientIds) byClient.set(client, (byClient.get(client) ?? 0) + each)
+          const current = totals.get(id) ?? {
+            id,
+            label: req ? `${requestCode(req.task_number)} · ${req.request}` : 'Request',
+            project: nameFor(projectIdForRequest, 'project'),
+            projectId: projectIdForRequest,
+            activity: nameFor(activityIdForRequest, 'activity'),
+            activityId: activityIdForRequest,
+            requester: requesterLabel(who),
+            requesterId: who,
+            clientIds: clientIds.length > 0 ? clientIds : [NO_CLIENT],
+            seconds: 0,
+            money: {},
+          }
+          current.seconds += seconds
+          for (const share of entryShares) addMoney(current.money, share.currency, share.amount / shareCount)
+          totals.set(id, current)
         }
       }
-      return {
-        rows: [...totals.values()].sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label)),
-        projects: ranked(byProject, (id) => nameFor(id, 'project'), (id) => id),
-        clients: ranked(byClient, (id) => nameFor(id, 'client'), (id) => `request-time-client-${id}`),
-        requesters: ranked(byRequester, requesterLabel, (id) => `request-time-requester-${id}`),
-        activities: ranked(byActivity, (id) => nameFor(id, 'activity'), (id) => `request-time-activity-${id}`),
-      }
+      return [...totals.values()].sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label))
     }
 
     const filteredTasks = (tasks.data ?? []).filter((task) => {
@@ -380,32 +389,8 @@ export function ReportPage() {
       return ids.length === 0 ? [NO_CLIENT] : ids
     }
 
-    function taskBuckets(kind: 'project' | 'client' | 'activity' | 'requester'): Bucket[] {
-      const map = new Map<string, number>()
-      for (const task of filteredTasks) {
-        const ids =
-          kind === 'client'
-            ? taskClientIds(task)
-            : kind === 'project'
-              ? [task.project_id ?? NO_PROJECT]
-              : kind === 'activity'
-                ? [task.activity_id ?? NO_ACTIVITY]
-                : [requesterId(task.requester)]
-        for (const id of ids) map.set(id, (map.get(id) ?? 0) + 1)
-      }
-      return ranked(
-        map,
-        (id) => (kind === 'requester' ? requesterLabel(id) : nameFor(id, kind)),
-        (id) => (kind === 'project' ? id : `task-${kind}-${id}`),
-      )
-    }
-
     function taskHours(rows: TimeEntry[], visibleShares: Share[]) {
-      const totals = new Map<string, RequestTime>()
-      const byProject = new Map<string, number>()
-      const byClient = new Map<string, number>()
-      const byRequester = new Map<string, number>()
-      const byActivity = new Map<string, number>()
+      const totals = new Map<string, WorkRow>()
       const known = new Map((tasks.data ?? []).map((task) => [task.id, task]))
       for (const entry of rows) {
         const links = entry.time_entry_tasks ?? []
@@ -417,23 +402,9 @@ export function ReportPage() {
           const task = link.task
           const full = known.get(link.task_id)
           const id = link.task_id
-          const current = totals.get(id) ?? {
-            id,
-            label: task ? `${taskCode(task.task_number)} · ${task.task}` : 'Task',
-            project: task?.project?.name ?? (task?.project_id ? nameFor(task.project_id, 'project') : 'No project'),
-            seconds: 0,
-            money: {},
-          }
-          current.seconds += seconds
-          for (const share of entryShares) addMoney(current.money, share.currency, share.amount / shareCount)
-          totals.set(id, current)
-
           const projectIdForTask = full?.project_id ?? task?.project_id ?? NO_PROJECT
           const activityIdForTask = full?.activity_id ?? task?.activity_id ?? NO_ACTIVITY
-          byProject.set(projectIdForTask, (byProject.get(projectIdForTask) ?? 0) + seconds)
-          byActivity.set(activityIdForTask, (byActivity.get(activityIdForTask) ?? 0) + seconds)
           const who = requesterId(full?.requester ?? task?.requester)
-          byRequester.set(who, (byRequester.get(who) ?? 0) + seconds)
           const clientIds = full
             ? taskClientIds(full)
             : taskClientIds({
@@ -441,16 +412,40 @@ export function ReportPage() {
                 activity_id: task?.activity_id ?? null,
                 task_clients: task?.task_clients,
               } as Task)
-          const each = clientIds.length > 0 ? seconds / clientIds.length : 0
-          for (const client of clientIds) byClient.set(client, (byClient.get(client) ?? 0) + each)
+          const current = totals.get(id) ?? {
+            id,
+            label: task ? `${taskCode(task.task_number)} · ${task.task}` : 'Task',
+            project: nameFor(projectIdForTask, 'project'),
+            projectId: projectIdForTask,
+            activity: nameFor(activityIdForTask, 'activity'),
+            activityId: activityIdForTask,
+            requester: requesterLabel(who),
+            requesterId: who,
+            clientIds: clientIds.length > 0 ? clientIds : [NO_CLIENT],
+            seconds: 0,
+            money: {},
+          }
+          current.seconds += seconds
+          for (const share of entryShares) addMoney(current.money, share.currency, share.amount / shareCount)
+          totals.set(id, current)
         }
       }
+      return [...totals.values()].sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label))
+    }
+
+    function toItem(projectId: string | null, activityId: string | null, requester: string | null | undefined, clientIds: string[], done: boolean): ReportItem {
+      const projectKey = projectId ?? NO_PROJECT
+      const activityKey = activityId ?? NO_ACTIVITY
+      const who = requesterId(requester)
       return {
-        rows: [...totals.values()].sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label)),
-        projects: ranked(byProject, (id) => nameFor(id, 'project'), (id) => id),
-        clients: ranked(byClient, (id) => nameFor(id, 'client'), (id) => `task-time-client-${id}`),
-        requesters: ranked(byRequester, requesterLabel, (id) => `task-time-requester-${id}`),
-        activities: ranked(byActivity, (id) => nameFor(id, 'activity'), (id) => `task-time-activity-${id}`),
+        projectId: projectKey,
+        project: nameFor(projectKey, 'project'),
+        activityId: activityKey,
+        activity: nameFor(activityKey, 'activity'),
+        requesterId: who,
+        requester: requesterLabel(who),
+        clientIds: clientIds.length > 0 ? clientIds : [NO_CLIENT],
+        done,
       }
     }
 
@@ -460,20 +455,15 @@ export function ReportPage() {
       money,
       requestCount: filteredRequests.length,
       taskCount: filteredTasks.length,
+      completedCount: filteredTasks.filter((task) => task.status === 'done').length,
+      requestItems: filteredRequests.map((req) => toItem(req.project_id, req.activity_id, req.requester, requestClientIds(req), false)),
+      taskItems: filteredTasks.map((task) => toItem(task.project_id, task.activity_id, task.requester, taskClientIds(task), task.status === 'done')),
       projects: buckets('project'),
       clients: buckets('client'),
       activities: buckets('activity'),
-      requestProjects: requestBuckets('project'),
-      requestClients: requestBuckets('client'),
-      requestRequesters: requestBuckets('requester'),
-      requestActivities: requestBuckets('activity'),
       clientSplits,
       shares,
       requestTime: requestHours(included, shares),
-      taskProjects: taskBuckets('project'),
-      taskClients: taskBuckets('client'),
-      taskRequesters: taskBuckets('requester'),
-      taskActivities: taskBuckets('activity'),
       taskTime: taskHours(included, shares),
     }
   }, [
@@ -505,7 +495,7 @@ export function ReportPage() {
         lines.push(['Client total', client.name, '', '', formatHours(client.seconds), '0', ''].map(cell).join(','))
       }
     }
-    for (const row of report.taskTime.rows) {
+    for (const row of report.taskTime) {
       const parts = Object.entries(row.money)
       if (parts.length === 0) {
         lines.push(['Task', row.label, row.project, '', formatHours(row.seconds), '0', ''].map(cell).join(','))
@@ -517,7 +507,7 @@ export function ReportPage() {
         }
       }
     }
-    for (const row of report.requestTime.rows) {
+    for (const row of report.requestTime) {
       const parts = Object.entries(row.money)
       if (parts.length === 0) {
         lines.push(['Request', row.label, row.project, '', formatHours(row.seconds), '0', ''].map(cell).join(','))
@@ -558,6 +548,35 @@ export function ReportPage() {
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  async function exportPdf() {
+    setExportingPdf(true)
+    try {
+      await downloadReportPdf(
+        {
+          from,
+          to,
+          workspaceName: isAll ? 'All workspaces' : workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? 'Workspace',
+          report,
+          projectColor,
+          clientName,
+        },
+        `report-${from}-to-${to}.pdf`,
+      )
+    } catch (error) {
+      toast({
+        tone: 'error',
+        title: 'Could not export the PDF',
+        description: error instanceof Error ? error.message : 'Something went wrong.',
+      })
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
+  const projectColor = (id: string) => catalog.allProjects.find((project) => project.id === id)?.color
+  const clientName = (id: string) =>
+    id === NO_CLIENT ? 'No client' : catalog.clients.find((client) => client.id === id)?.name ?? 'Unknown client'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
@@ -632,11 +651,13 @@ export function ReportPage() {
           <Button
             variant="outline"
             onClick={exportCsv}
-            disabled={report.clientSplits.length === 0 && report.requestCount === 0 && report.requestTime.rows.length === 0 && report.taskCount === 0 && report.taskTime.rows.length === 0}
+            disabled={report.clientSplits.length === 0 && report.requestCount === 0 && report.requestTime.length === 0 && report.taskCount === 0 && report.taskTime.length === 0}
           >
             Export CSV
           </Button>
-          <Button onClick={() => window.print()}>Print report</Button>
+          <Button onClick={() => void exportPdf()} disabled={loading || exportingPdf}>
+            {exportingPdf ? 'Exporting PDF' : 'Export PDF'}
+          </Button>
         </div>
       </div>
 
@@ -691,246 +712,23 @@ export function ReportPage() {
         )}
       </div>
 
-      <section>
-        <h2 className="mb-2 text-sm font-medium">Clients and projects</h2>
-        {loading ? (
-          <ClientsSkeleton />
-        ) : report.clientSplits.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No time in this range.</p>
-        ) : (
-          <div className="max-h-[25rem] overflow-y-auto rounded-lg border border-border bg-card print:max-h-none print:overflow-visible">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Client / project</TableHead>
-                <TableHead>Hours</TableHead>
-                <TableHead>Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {report.clientSplits.map((client) => (
-                <Fragment key={client.id}>
-                  <TableRow>
-                    <TableCell className="font-medium">{client.name}</TableCell>
-                    <TableCell className="tabular">{formatHours(client.seconds)}</TableCell>
-                    <TableCell className="tabular">{formatMoney(client.money)}</TableCell>
-                  </TableRow>
-                  {client.projects.map((project) => (
-                    <TableRow key={`${client.id}-${project.id}`}>
-                      <TableCell className="pl-8 text-muted-foreground">{project.name}</TableCell>
-                      <TableCell className="tabular">{formatHours(project.seconds)}</TableCell>
-                      <TableCell className="tabular">{formatMoney(project.money)}</TableCell>
-                    </TableRow>
-                  ))}
-                </Fragment>
-              ))}
-            </TableBody>
-          </Table>
-          </div>
-        )}
-      </section>
-
-      <section className="print:hidden">
-        <h2 className="mb-2 text-sm font-medium">Requests</h2>
-        <div className="grid gap-4 lg:grid-cols-4">
-          {loading ? (
-            <>
-              <DonutSkeleton title="Requests by project" />
-              <DonutSkeleton title="Requests by client" />
-              <DonutSkeleton title="Requests by requester" />
-              <DonutSkeleton title="Requests by activity" />
-            </>
-          ) : (
-            <>
-              <Donut
-                title="Requests by project"
-                slices={report.requestProjects}
-                selectedId={projectId}
-                onSelect={(id) => setProjectId(id === projectId ? '' : id)}
-                formatValue={(count) => String(count)}
-                emptyLabel="No requests."
-              />
-              <Donut
-                title="Requests by client"
-                slices={report.requestClients}
-                selectedId={clientId}
-                onSelect={(id) => setClientId(id === clientId ? '' : id)}
-                formatValue={(count) => String(count)}
-                emptyLabel="No requests."
-              />
-              <Donut
-                title="Requests by requester"
-                slices={report.requestRequesters}
-                selectedId=""
-                onSelect={() => undefined}
-                formatValue={(count) => String(count)}
-                emptyLabel="No requests."
-              />
-              <Donut
-                title="Requests by activity"
-                slices={report.requestActivities}
-                selectedId={activityId}
-                onSelect={(id) => setActivityId(id === activityId ? '' : id)}
-                formatValue={(count) => String(count)}
-                emptyLabel="No requests."
-              />
-            </>
-          )}
-        </div>
-        <div className="mb-2 mt-4 flex items-center gap-1.5">
-          <h3 className="text-sm font-medium">Request time</h3>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button type="button" className="text-muted-foreground" aria-label="How request time is counted">
-                  <InformationCircleIcon className="size-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Time on a request is the entry’s duration split evenly across every request linked to that entry.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-4">
-          {loading ? (
-            <>
-              <DonutSkeleton title="Request time by project" />
-              <DonutSkeleton title="Request time by client" />
-              <DonutSkeleton title="Request time by requester" />
-              <DonutSkeleton title="Request time by activity" />
-            </>
-          ) : (
-            <>
-              <Donut
-                title="Request time by project"
-                slices={report.requestTime.projects}
-                selectedId={projectId}
-                onSelect={(id) => setProjectId(id === projectId ? '' : id)}
-              />
-              <Donut
-                title="Request time by client"
-                slices={report.requestTime.clients}
-                selectedId={clientId}
-                onSelect={(id) => setClientId(id === clientId ? '' : id)}
-              />
-              <Donut
-                title="Request time by requester"
-                slices={report.requestTime.requesters}
-                selectedId=""
-                onSelect={() => undefined}
-              />
-              <Donut
-                title="Request time by activity"
-                slices={report.requestTime.activities}
-                selectedId={activityId}
-                onSelect={(id) => setActivityId(id === activityId ? '' : id)}
-              />
-            </>
-          )}
-        </div>
-      </section>
-
-      <section className="print:hidden">
-        <h2 className="mb-2 text-sm font-medium">Tasks</h2>
-        <div className="grid gap-4 lg:grid-cols-4">
-          {loading ? (
-            <>
-              <DonutSkeleton title="Tasks by project" />
-              <DonutSkeleton title="Tasks by client" />
-              <DonutSkeleton title="Tasks by requester" />
-              <DonutSkeleton title="Tasks by activity" />
-            </>
-          ) : (
-            <>
-              <Donut
-                title="Tasks by project"
-                slices={report.taskProjects}
-                selectedId={projectId}
-                onSelect={(id) => setProjectId(id === projectId ? '' : id)}
-                formatValue={(count) => String(count)}
-                emptyLabel="No tasks."
-              />
-              <Donut
-                title="Tasks by client"
-                slices={report.taskClients}
-                selectedId={clientId}
-                onSelect={(id) => setClientId(id === clientId ? '' : id)}
-                formatValue={(count) => String(count)}
-                emptyLabel="No tasks."
-              />
-              <Donut
-                title="Tasks by requester"
-                slices={report.taskRequesters}
-                selectedId=""
-                onSelect={() => undefined}
-                formatValue={(count) => String(count)}
-                emptyLabel="No tasks."
-              />
-              <Donut
-                title="Tasks by activity"
-                slices={report.taskActivities}
-                selectedId={activityId}
-                onSelect={(id) => setActivityId(id === activityId ? '' : id)}
-                formatValue={(count) => String(count)}
-                emptyLabel="No tasks."
-              />
-            </>
-          )}
-        </div>
-        <div className="mb-2 mt-4 flex items-center gap-1.5">
-          <h3 className="text-sm font-medium">Task time</h3>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button type="button" className="text-muted-foreground" aria-label="How task time is counted">
-                  <InformationCircleIcon className="size-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Time on a task is the entry’s duration split evenly across every task linked to that entry.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-4">
-          {loading ? (
-            <>
-              <DonutSkeleton title="Task time by project" />
-              <DonutSkeleton title="Task time by client" />
-              <DonutSkeleton title="Task time by requester" />
-              <DonutSkeleton title="Task time by activity" />
-            </>
-          ) : (
-            <>
-              <Donut
-                title="Task time by project"
-                slices={report.taskTime.projects}
-                selectedId={projectId}
-                onSelect={(id) => setProjectId(id === projectId ? '' : id)}
-              />
-              <Donut
-                title="Task time by client"
-                slices={report.taskTime.clients}
-                selectedId={clientId}
-                onSelect={(id) => setClientId(id === clientId ? '' : id)}
-              />
-              <Donut
-                title="Task time by requester"
-                slices={report.taskTime.requesters}
-                selectedId=""
-                onSelect={() => undefined}
-              />
-              <Donut
-                title="Task time by activity"
-                slices={report.taskTime.activities}
-                selectedId={activityId}
-                onSelect={(id) => setActivityId(id === activityId ? '' : id)}
-              />
-            </>
-          )}
-        </div>
-      </section>
+      <ReportTable
+        report={report}
+        groupBy={groupBy}
+        onGroupBy={(value) => {
+          setGroupBy(value)
+          storeGroupBy(value)
+        }}
+        projectColor={projectColor}
+        clientName={clientName}
+        projectId={projectId}
+        clientId={clientId}
+        activityId={activityId}
+        onProject={(id) => setProjectId(id === projectId ? '' : id)}
+        onClient={(id) => setClientId(id === clientId ? '' : id)}
+        onActivity={(id) => setActivityId(id === activityId ? '' : id)}
+        loading={loading}
+      />
 
       {isAll ? (
         <p className="text-xs text-muted-foreground print:hidden">
@@ -968,15 +766,15 @@ function SummarySkeleton({ label }: { label: string }) {
   )
 }
 
-function pointOnCircle(cx: number, cy: number, radius: number, angle: number) {
+export function pointOnCircle(cx: number, cy: number, radius: number, angle: number) {
   return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)] as const
 }
 
-function isFullRing(start: number, end: number) {
+export function isFullRing(start: number, end: number) {
   return end - start >= Math.PI * 2 - 1e-4
 }
 
-function donutSlicePath(cx: number, cy: number, outer: number, inner: number, start: number, end: number) {
+export function donutSlicePath(cx: number, cy: number, outer: number, inner: number, start: number, end: number) {
   const sweep = end - start
   const large = sweep > Math.PI ? 1 : 0
   const [x1, y1] = pointOnCircle(cx, cy, outer, start)
@@ -1070,7 +868,7 @@ function Donut({
               </div>
             ) : null}
           </div>
-          <ul className="min-w-0 max-h-[7.5rem] flex-1 space-y-0.5 overflow-y-auto">
+          <ul className="min-w-0 flex-1 space-y-0.5">
             {arcs.map((slice) => (
               <li key={slice.id}>
                 <button
@@ -1124,15 +922,631 @@ function DonutSkeleton({ title }: { title: string }) {
   )
 }
 
-function ClientsSkeleton() {
+function ShareBar({ seconds, total, color }: { seconds: number; total: number; color?: string }) {
+  const pct = total > 0 ? Math.round((seconds / total) * 100) : 0
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-full max-w-24 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn('h-full rounded-full', !color && 'bg-foreground/80')}
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <span className="text-xs tabular text-muted-foreground">{pct}%</span>
+    </div>
+  )
+}
+
+export const GROUP_LABEL: Record<GroupBy, string> = {
+  'client-project': 'Client / project',
+  'project-client': 'Project / clients',
+  'project-client-activity': 'Project / clients / activity',
+  project: 'Project',
+  client: 'Client',
+  requester: 'Requester',
+  activity: 'Activity',
+}
+
+export type Line = {
+  key: string
+  filterId: string
+  label: string
+  depth: number
+  color?: string
+  billing: boolean
+  seconds: number
+  money: Money
+  requests: number
+  requestSeconds: number
+  tasks: number
+  completed: number
+  taskSeconds: number
+  filter: 'project' | 'client' | 'activity' | null
+  children: Line[]
+}
+
+function blankLine(key: string, filterId: string, label: string, billing: boolean): Line {
+  return {
+    key,
+    filterId,
+    label,
+    depth: 0,
+    billing,
+    seconds: 0,
+    money: {},
+    requests: 0,
+    requestSeconds: 0,
+    tasks: 0,
+    completed: 0,
+    taskSeconds: 0,
+    filter: null,
+    children: [],
+  }
+}
+
+function hasFigures(line: Line) {
+  return (
+    line.seconds > 0 ||
+    Object.keys(line.money).length > 0 ||
+    line.requests > 0 ||
+    line.requestSeconds > 0 ||
+    line.tasks > 0 ||
+    line.completed > 0 ||
+    line.taskSeconds > 0
+  )
+}
+
+function moneyBy(shares: Share[], key: (share: Share) => string) {
+  const map = new Map<string, Money>()
+  for (const share of shares) {
+    const id = key(share)
+    const money = map.get(id) ?? {}
+    addMoney(money, share.currency, share.amount)
+    map.set(id, money)
+  }
+  return map
+}
+
+function ReportTable({
+  report,
+  groupBy,
+  onGroupBy,
+  projectColor,
+  clientName,
+  projectId,
+  clientId,
+  activityId,
+  onProject,
+  onClient,
+  onActivity,
+  loading,
+}: {
+  report: {
+    totalSeconds: number
+    money: Money
+    requestCount: number
+    taskCount: number
+    completedCount: number
+    projects: Bucket[]
+    activities: Bucket[]
+    clientSplits: ClientSplit[]
+    shares: Share[]
+    requestTime: WorkRow[]
+    taskTime: WorkRow[]
+    requestItems: ReportItem[]
+    taskItems: ReportItem[]
+  }
+  groupBy: GroupBy
+  onGroupBy: (value: GroupBy) => void
+  projectColor: (id: string) => string | undefined
+  clientName: (id: string) => string
+  projectId: string
+  clientId: string
+  activityId: string
+  onProject: (id: string) => void
+  onClient: (id: string) => void
+  onActivity: (id: string) => void
+  loading: boolean
+}) {
+  const rows = buildLines(report, groupBy, projectColor, clientName)
+  const empty = rows.length === 0 && report.totalSeconds === 0 && report.requestCount === 0 && report.taskCount === 0
+  const requestSeconds = report.requestTime.reduce((sum, row) => sum + row.seconds, 0)
+  const taskSeconds = report.taskTime.reduce((sum, row) => sum + row.seconds, 0)
+  return (
+    <section>
+      <div className="mb-2 flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-sm font-medium">Breakdown</h2>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="text-muted-foreground" aria-label="How the breakdown is counted">
+                  <InformationCircleIcon className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Requests and tasks include items with no logged time. Hours are only time linked to an entry, split evenly across the linked items. Total hours and amount are all logged time. A requester has no total hours or amount.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <div className="ml-auto flex items-center gap-2 print:hidden">
+          <Label htmlFor="breakdown-group" className="shrink-0 text-xs text-muted-foreground">
+            Group by
+          </Label>
+          <Select value={groupBy} onValueChange={(value) => onGroupBy(value as GroupBy)}>
+            <SelectTrigger id="breakdown-group" aria-label="Group the breakdown by" className="w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="client-project">Client / project</SelectItem>
+              <SelectItem value="project-client">Project / clients</SelectItem>
+              <SelectItem value="project-client-activity">Project / clients / activity</SelectItem>
+              <SelectItem value="project">Project</SelectItem>
+              <SelectItem value="client">Client</SelectItem>
+              <SelectItem value="requester">Requester</SelectItem>
+              <SelectItem value="activity">Activity</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {loading ? (
+        <ReportSkeleton />
+      ) : empty ? (
+        <p className="text-sm text-muted-foreground">No time, requests, or tasks in this range.</p>
+      ) : (
+        <div className="max-h-[25rem] overflow-auto rounded-lg border border-border bg-card print:max-h-none print:overflow-visible">
+          <Table className="min-w-[72rem]">
+            <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
+              <TableRow>
+                <TableHead>{GROUP_LABEL[groupBy]}</TableHead>
+                <TableHead className="w-40">Total share</TableHead>
+                <TableHead className="w-28 text-right">Total hours</TableHead>
+                <TableHead className="w-36 text-right">Amount</TableHead>
+                <TableHead className="w-24 text-right">Requests</TableHead>
+                <TableHead className="w-32 text-right">Request hours</TableHead>
+                <TableHead className="w-24 text-right">Tasks</TableHead>
+                <TableHead className="w-28 text-right">Completed</TableHead>
+                <TableHead className="w-28 text-right">Task hours</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <ReportRows
+                lines={rows}
+                totalSeconds={report.totalSeconds}
+                projectId={projectId}
+                clientId={clientId}
+                activityId={activityId}
+                onProject={onProject}
+                onClient={onClient}
+                onActivity={onActivity}
+              />
+            </TableBody>
+            <tfoot>
+              <TableRow className="sticky bottom-0 z-10 border-t border-border bg-card font-medium">
+                <TableCell>Total</TableCell>
+                <TableCell>
+                  <ShareBar seconds={report.totalSeconds} total={report.totalSeconds} />
+                </TableCell>
+                <TableCell className="text-right tabular">{formatHours(report.totalSeconds)}</TableCell>
+                <TableCell className="text-right tabular">{formatMoney(report.money)}</TableCell>
+                <TableCell className="text-right tabular">{report.requestCount}</TableCell>
+                <TableCell className="text-right tabular">{formatHours(requestSeconds)}</TableCell>
+                <TableCell className="text-right tabular">{report.taskCount}</TableCell>
+                <TableCell className="text-right tabular">{report.completedCount}</TableCell>
+                <TableCell className="text-right tabular">{formatHours(taskSeconds)}</TableCell>
+              </TableRow>
+            </tfoot>
+          </Table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ReportRows({
+  lines,
+  totalSeconds,
+  projectId,
+  clientId,
+  activityId,
+  onProject,
+  onClient,
+  onActivity,
+}: {
+  lines: Line[]
+  totalSeconds: number
+  projectId: string
+  clientId: string
+  activityId: string
+  onProject: (id: string) => void
+  onClient: (id: string) => void
+  onActivity: (id: string) => void
+}) {
+  return lines.map((line) => (
+    <Fragment key={line.key}>
+      <ReportLine
+        line={line}
+        totalSeconds={totalSeconds}
+        projectId={projectId}
+        clientId={clientId}
+        activityId={activityId}
+        onProject={onProject}
+        onClient={onClient}
+        onActivity={onActivity}
+      />
+      {line.children.length > 0 ? (
+        <ReportRows
+          lines={line.children}
+          totalSeconds={totalSeconds}
+          projectId={projectId}
+          clientId={clientId}
+          activityId={activityId}
+          onProject={onProject}
+          onClient={onClient}
+          onActivity={onActivity}
+        />
+      ) : null}
+    </Fragment>
+  ))
+}
+
+function ReportLine({
+  line,
+  totalSeconds,
+  projectId,
+  clientId,
+  activityId,
+  onProject,
+  onClient,
+  onActivity,
+}: {
+  line: Line
+  totalSeconds: number
+  projectId: string
+  clientId: string
+  activityId: string
+  onProject: (id: string) => void
+  onClient: (id: string) => void
+  onActivity: (id: string) => void
+}) {
+  const onSelect = line.filter === 'project' ? onProject : line.filter === 'client' ? onClient : line.filter === 'activity' ? onActivity : null
+  const selected =
+    (line.filter === 'project' && projectId === line.filterId) ||
+    (line.filter === 'client' && clientId === line.filterId) ||
+    (line.filter === 'activity' && activityId === line.filterId)
+  return (
+    <TableRow
+      aria-pressed={onSelect ? selected : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      className={cn(
+        line.depth === 0 ? 'font-medium' : 'text-muted-foreground',
+        onSelect && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
+        selected && 'bg-muted',
+      )}
+      onClick={onSelect ? () => onSelect(line.filterId) : undefined}
+      onKeyDown={
+        onSelect
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onSelect(line.filterId)
+              }
+            }
+          : undefined
+      }
+    >
+      <TableCell className={cn('overflow-hidden', line.depth === 1 && 'pl-8 font-normal', line.depth === 2 && 'pl-14 font-normal')}>
+        <span className="block truncate">{line.label}</span>
+      </TableCell>
+      <TableCell>{line.billing ? <ShareBar seconds={line.seconds} total={totalSeconds} color={line.color} /> : '—'}</TableCell>
+      <TableCell className="text-right tabular">{line.billing ? formatHours(line.seconds) : '—'}</TableCell>
+      <TableCell className="text-right tabular">{line.billing ? formatMoney(line.money) : '—'}</TableCell>
+      <TableCell className="text-right tabular">{line.requests}</TableCell>
+      <TableCell className="text-right tabular">{formatHours(line.requestSeconds)}</TableCell>
+      <TableCell className="text-right tabular">{line.tasks}</TableCell>
+      <TableCell className="text-right tabular">{line.completed}</TableCell>
+      <TableCell className="text-right tabular">{formatHours(line.taskSeconds)}</TableCell>
+    </TableRow>
+  )
+}
+
+export function buildLines(
+  report: {
+    projects: Bucket[]
+    activities: Bucket[]
+    clientSplits: ClientSplit[]
+    shares: Share[]
+    requestTime: WorkRow[]
+    taskTime: WorkRow[]
+    requestItems: ReportItem[]
+    taskItems: ReportItem[]
+  },
+  groupBy: GroupBy,
+  projectColor: (id: string) => string | undefined,
+  clientName: (id: string) => string,
+) {
+  if (groupBy === 'client-project') return clientProjectLines(report, projectColor, clientName)
+  if (groupBy === 'project-client' || groupBy === 'project-client-activity') {
+    return projectTree(report, projectColor, clientName, groupBy === 'project-client-activity')
+  }
+  return flatLines(report, groupBy, clientName)
+}
+
+function clientProjectLines(
+  report: {
+    clientSplits: ClientSplit[]
+    requestTime: WorkRow[]
+    taskTime: WorkRow[]
+    requestItems: ReportItem[]
+    taskItems: ReportItem[]
+  },
+  projectColor: (id: string) => string | undefined,
+  clientName: (id: string) => string,
+) {
+  const clients = new Map<string, Line & { projectMap: Map<string, Line> }>()
+  function clientLine(id: string, label: string) {
+    const current = clients.get(id)
+    if (current) return current
+    const line = { ...blankLine(id, id, label, true), filter: 'client' as const, projectMap: new Map<string, Line>() }
+    clients.set(id, line)
+    return line
+  }
+  function projectLine(client: Line & { projectMap: Map<string, Line> }, id: string, label: string) {
+    const current = client.projectMap.get(id)
+    if (current) return current
+    const line = { ...blankLine(`${client.key}-${id}`, id, label, true), depth: 1, filter: 'project' as const, color: projectColor(id) }
+    client.projectMap.set(id, line)
+    return line
+  }
+  for (const client of report.clientSplits) {
+    const line = clientLine(client.id, client.name)
+    line.seconds = client.seconds
+    line.money = { ...client.money }
+    for (const project of client.projects) {
+      const child = projectLine(line, project.id, project.name)
+      child.seconds = project.seconds
+      child.money = { ...project.money }
+    }
+  }
+  function count(item: ReportItem, kind: 'request' | 'task') {
+    for (const clientId of item.clientIds) {
+      const client = clientLine(clientId, clientName(clientId))
+      const project = projectLine(client, item.projectId, item.project)
+      if (kind === 'request') {
+        client.requests += 1
+        project.requests += 1
+      } else {
+        client.tasks += 1
+        project.tasks += 1
+        if (item.done) {
+          client.completed += 1
+          project.completed += 1
+        }
+      }
+    }
+  }
+  for (const item of report.requestItems) count(item, 'request')
+  for (const item of report.taskItems) count(item, 'task')
+  function hours(row: WorkRow, kind: 'request' | 'task') {
+    const ids = row.clientIds.length > 0 ? row.clientIds : [NO_CLIENT]
+    const share = row.seconds / ids.length
+    for (const clientId of ids) {
+      const client = clientLine(clientId, clientName(clientId))
+      const project = projectLine(client, row.projectId, row.project)
+      if (kind === 'request') {
+        client.requestSeconds += share
+        project.requestSeconds += share
+      } else {
+        client.taskSeconds += share
+        project.taskSeconds += share
+      }
+    }
+  }
+  for (const row of report.requestTime) hours(row, 'request')
+  for (const row of report.taskTime) hours(row, 'task')
+  return [...clients.values()]
+    .map((client) => ({
+      ...client,
+      children: [...client.projectMap.values()]
+        .filter(hasFigures)
+        .sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label)),
+    }))
+    .filter(hasFigures)
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+function projectTree(
+  report: {
+    projects: Bucket[]
+    activities: Bucket[]
+    shares: Share[]
+    requestTime: WorkRow[]
+    taskTime: WorkRow[]
+    requestItems: ReportItem[]
+    taskItems: ReportItem[]
+  },
+  projectColor: (id: string) => string | undefined,
+  clientName: (id: string) => string,
+  withActivity: boolean,
+) {
+  const projects = new Map<string, Line>()
+  const projectNames = new Map(report.projects.map((bucket) => [bucket.id, bucket.label]))
+  const activityNames = new Map(report.activities.map((bucket) => [bucket.id, bucket.label]))
+  function child(parent: Line, id: string, label: string, filter: Line['filter'], color?: string) {
+    const key = `${parent.key}-${id}`
+    const current = parent.children.find((line) => line.key === key)
+    if (current) return current
+    const line = { ...blankLine(key, id, label, true), depth: parent.depth + 1, filter, color }
+    parent.children.push(line)
+    return line
+  }
+  function projectLine(id: string, label: string) {
+    const current = projects.get(id)
+    if (current) return current
+    const line = { ...blankLine(id, id, label, true), filter: 'project' as const, color: projectColor(id) }
+    projects.set(id, line)
+    return line
+  }
+  for (const bucket of report.projects) {
+    const line = projectLine(bucket.id, bucket.label)
+    line.seconds = bucket.seconds
+  }
+  for (const share of report.shares) {
+    const project = projectLine(share.projectId, projectNames.get(share.projectId) ?? 'Unknown project')
+    addMoney(project.money, share.currency, share.amount)
+    const client = child(project, share.clientId, clientName(share.clientId), 'client')
+    client.seconds += share.seconds
+    addMoney(client.money, share.currency, share.amount)
+    if (withActivity) {
+      const activity = child(client, share.activityId, activityNames.get(share.activityId) ?? 'No activity', 'activity')
+      activity.seconds += share.seconds
+      addMoney(activity.money, share.currency, share.amount)
+    }
+  }
+  function count(item: ReportItem, kind: 'request' | 'task') {
+    const project = projectLine(item.projectId, item.project)
+    const bump = (line: Line) => {
+      if (kind === 'request') line.requests += 1
+      else {
+        line.tasks += 1
+        if (item.done) line.completed += 1
+      }
+    }
+    bump(project)
+    for (const clientId of item.clientIds) {
+      const client = child(project, clientId, clientName(clientId), 'client')
+      bump(client)
+      if (withActivity) bump(child(client, item.activityId, item.activity, 'activity'))
+    }
+  }
+  for (const item of report.requestItems) count(item, 'request')
+  for (const item of report.taskItems) count(item, 'task')
+  function hours(row: WorkRow, kind: 'request' | 'task') {
+    const ids = row.clientIds.length > 0 ? row.clientIds : [NO_CLIENT]
+    const project = projectLine(row.projectId, row.project)
+    const share = row.seconds / ids.length
+    if (kind === 'request') project.requestSeconds += row.seconds
+    else project.taskSeconds += row.seconds
+    for (const clientId of ids) {
+      const client = child(project, clientId, clientName(clientId), 'client')
+      if (kind === 'request') client.requestSeconds += share
+      else client.taskSeconds += share
+      if (withActivity) {
+        const activity = child(client, row.activityId, row.activity, 'activity')
+        if (kind === 'request') activity.requestSeconds += share
+        else activity.taskSeconds += share
+      }
+    }
+  }
+  for (const row of report.requestTime) hours(row, 'request')
+  for (const row of report.taskTime) hours(row, 'task')
+  function finish(lines: Line[]): Line[] {
+    return lines
+      .map((line) => ({ ...line, children: finish(line.children).sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label)) }))
+      .filter(hasFigures)
+  }
+  return finish([...projects.values()]).sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label))
+}
+
+function flatLines(
+  report: {
+    projects: Bucket[]
+    activities: Bucket[]
+    clientSplits: ClientSplit[]
+    shares: Share[]
+    requestTime: WorkRow[]
+    taskTime: WorkRow[]
+    requestItems: ReportItem[]
+    taskItems: ReportItem[]
+  },
+  groupBy: 'project' | 'client' | 'requester' | 'activity',
+  clientName: (id: string) => string,
+) {
+  const billing = groupBy !== 'requester'
+  const lines = new Map<string, Line>()
+  function lineFor(id: string, label: string) {
+    const current = lines.get(id)
+    if (current) return current
+    const filter: Line['filter'] = groupBy === 'project' ? 'project' : groupBy === 'client' ? 'client' : groupBy === 'activity' ? 'activity' : null
+    const line = { ...blankLine(id, id, label, billing), filter }
+    lines.set(id, line)
+    return line
+  }
+  if (groupBy === 'project') {
+    const amounts = moneyBy(report.shares, (share) => share.projectId)
+    for (const bucket of report.projects) {
+      const line = lineFor(bucket.id, bucket.label)
+      line.seconds = bucket.seconds
+      line.money = amounts.get(bucket.id) ?? {}
+    }
+  } else if (groupBy === 'activity') {
+    const amounts = moneyBy(report.shares, (share) => share.activityId)
+    for (const bucket of report.activities) {
+      const line = lineFor(bucket.id, bucket.label)
+      line.seconds = bucket.seconds
+      line.money = amounts.get(bucket.id) ?? {}
+    }
+  } else if (groupBy === 'client') {
+    for (const client of report.clientSplits) {
+      const line = lineFor(client.id, client.name)
+      line.seconds = client.seconds
+      line.money = { ...client.money }
+    }
+  }
+  function place(item: ReportItem) {
+    if (groupBy === 'client') return item.clientIds.map((id) => ({ id, label: clientName(id) }))
+    if (groupBy === 'activity') return [{ id: item.activityId, label: item.activity }]
+    if (groupBy === 'requester') return [{ id: item.requesterId, label: item.requester }]
+    return [{ id: item.projectId, label: item.project }]
+  }
+  for (const item of report.requestItems) {
+    for (const slice of place(item)) lineFor(slice.id, slice.label).requests += 1
+  }
+  for (const item of report.taskItems) {
+    for (const slice of place(item)) {
+      const line = lineFor(slice.id, slice.label)
+      line.tasks += 1
+      if (item.done) line.completed += 1
+    }
+  }
+  function placeHours(row: WorkRow) {
+    if (groupBy === 'client') {
+      const ids = row.clientIds.length > 0 ? row.clientIds : [NO_CLIENT]
+      return ids.map((id) => ({ id, label: clientName(id), seconds: row.seconds / ids.length }))
+    }
+    if (groupBy === 'activity') return [{ id: row.activityId, label: row.activity, seconds: row.seconds }]
+    if (groupBy === 'requester') return [{ id: row.requesterId, label: row.requester, seconds: row.seconds }]
+    return [{ id: row.projectId, label: row.project, seconds: row.seconds }]
+  }
+  for (const row of report.requestTime) {
+    for (const slice of placeHours(row)) lineFor(slice.id, slice.label).requestSeconds += slice.seconds
+  }
+  for (const row of report.taskTime) {
+    for (const slice of placeHours(row)) lineFor(slice.id, slice.label).taskSeconds += slice.seconds
+  }
+  return [...lines.values()].filter(hasFigures).sort((a, b) => {
+    const aRank = a.billing ? a.seconds : a.requestSeconds + a.taskSeconds
+    const bRank = b.billing ? b.seconds : b.requestSeconds + b.taskSeconds
+    return bRank - aRank || a.label.localeCompare(b.label)
+  })
+}
+
+function ReportSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Client / project</TableHead>
-            <TableHead>Hours</TableHead>
-            <TableHead>Amount</TableHead>
+            <TableHead>Total share</TableHead>
+            <TableHead className="text-right">Total hours</TableHead>
+            <TableHead className="text-right">Amount</TableHead>
+            <TableHead className="text-right">Requests</TableHead>
+            <TableHead className="text-right">Request hours</TableHead>
+            <TableHead className="text-right">Tasks</TableHead>
+            <TableHead className="text-right">Completed</TableHead>
+            <TableHead className="text-right">Task hours</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1142,11 +1556,13 @@ function ClientsSkeleton() {
                 <Skeleton className="h-4 w-40" />
               </TableCell>
               <TableCell>
-                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-1.5 w-24" />
               </TableCell>
-              <TableCell>
-                <Skeleton className="h-4 w-20" />
-              </TableCell>
+              {Array.from({ length: 7 }, (_, cell) => (
+                <TableCell key={cell}>
+                  <Skeleton className="ml-auto h-4 w-12" />
+                </TableCell>
+              ))}
             </TableRow>
           ))}
         </TableBody>

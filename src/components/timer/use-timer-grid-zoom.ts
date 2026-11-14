@@ -1,4 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+
+import { useAuth } from '@/features/auth/auth-context'
+import { parseTimerZoom, readUserPreferences } from '@/lib/user-preferences'
 
 import { DEFAULT_ZOOM, ZOOM_STEPS } from './week-layout'
 
@@ -10,15 +13,13 @@ function nearestStep(value: number) {
   )
 }
 
-function readStored() {
+function readStored(): number | null {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw == null) return DEFAULT_ZOOM
-    const parsed = Number(raw)
-    if (!Number.isFinite(parsed)) return DEFAULT_ZOOM
-    return nearestStep(parsed)
+    if (raw == null) return null
+    return parseTimerZoom(Number(raw))
   } catch {
-    return DEFAULT_ZOOM
+    return null
   }
 }
 
@@ -31,7 +32,13 @@ function writeStored(zoom: number) {
 }
 
 export function useTimerGridZoom() {
-  const [zoom, setZoom] = useState(readStored)
+  const { user } = useAuth()
+  const [zoom, setZoom] = useState(() => readStored() ?? DEFAULT_ZOOM)
+
+  useEffect(() => {
+    if (readStored() != null) return
+    setZoom(readUserPreferences(user).timer_zoom)
+  }, [user])
   const index = ZOOM_STEPS.indexOf(zoom as (typeof ZOOM_STEPS)[number])
   const stepIndex = index === -1 ? ZOOM_STEPS.indexOf(DEFAULT_ZOOM) : index
 

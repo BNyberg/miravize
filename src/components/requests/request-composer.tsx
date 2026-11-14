@@ -11,8 +11,9 @@ import {
   writeNoteParts,
   type MentionCaret,
 } from '@/components/requests/note-field'
+import { DisabledReasonTooltip } from '@/components/disabled-reason-tooltip'
+import { MentionList } from '@/components/requests/mention-list'
 import { Chip } from '@/components/timer/entry-editor'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -30,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { logDisabledReason } from '@/lib/log-disabled-reason'
 import { supabase } from '@/lib/supabase'
 import {
   applyActivity,
@@ -371,11 +373,22 @@ export function RequestComposer({
     setMention(null)
   }
 
+  const hasScreenshot = files.length > 0
   const canLog =
     Boolean(activeWorkspace) &&
-    (files.length > 0 || (requester.trim().length > 0 && request.trim().length > 0)) &&
+    (hasScreenshot || (requester.trim().length > 0 && request.trim().length > 0)) &&
     !pending
   const canTrack = canLog && Boolean(assignment.projectId)
+  const reasonInput = {
+    pending,
+    hasWorkspace: Boolean(activeWorkspace),
+    hasRequester: hasScreenshot || requester.trim().length > 0,
+    hasText: hasScreenshot || request.trim().length > 0,
+    hasProject: Boolean(assignment.projectId),
+    textLabel: 'request' as const,
+  }
+  const logReason = logDisabledReason({ ...reasonInput, track: false })
+  const trackReason = logDisabledReason({ ...reasonInput, track: true })
 
   async function submit(track: boolean) {
     try {
@@ -437,30 +450,11 @@ export function RequestComposer({
         }}
       />
 
-      <div className="flex">
-        <div className="w-1/4 min-w-0">
-          <RequesterField workspaceId={activeWorkspace} value={requester} onChange={onRequester} />
-        </div>
-        <input
-          value={request}
-          onChange={(event) => onRequest(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canLog) {
-              event.preventDefault()
-              void submit(false)
-            }
-          }}
-          placeholder="Request"
-          aria-label="Request"
-          className="h-9 w-3/4 min-w-0 border-l border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
-        />
-      </div>
-
       <Popover open={mentionOpen}>
         <PopoverAnchor asChild>
-          <div className="border-t border-border">
+          <div>
             <NoteField
-              placeholder="Notes, or @ to tag"
+              placeholder="Paste a screenshot, or @ to assign"
               className="min-h-9 max-h-9 overflow-x-auto whitespace-nowrap border-0 bg-transparent px-3 py-1.5 text-sm leading-6 hover:bg-transparent"
               onReady={(el) => {
                 editor.current = el
@@ -499,39 +493,34 @@ export function RequestComposer({
             />
           </div>
         </PopoverAnchor>
-        <PopoverContent className="w-72 p-1" onOpenAutoFocus={(event) => event.preventDefault()}>
-          {choices.map((item, index) => (
-            <button
-              key={`${item.kind}-${item.id}-${item.token}`}
-              type="button"
-              className={cn(
-                'flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted',
-                index === active ? 'bg-muted' : '',
-              )}
-              onMouseEnter={() => setActive(index)}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                insertMention(item)
-              }}
-            >
-              <span className="truncate">{item.label}</span>
-              {item.kind === 'project' ? (
-                <Badge className="ml-2 shrink-0 border-transparent text-white" style={{ background: item.color || '#5E5C57' }}>
-                  Project
-                </Badge>
-              ) : item.kind === 'activity' ? (
-                <Badge variant="secondary" className="ml-2 shrink-0">
-                  Activity
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="ml-2 shrink-0">
-                  Client
-                </Badge>
-              )}
-            </button>
-          ))}
+        <PopoverContent className="max-h-72 w-72 overflow-y-auto p-1" onOpenAutoFocus={(event) => event.preventDefault()}>
+          <MentionList
+            choices={choices}
+            active={active}
+            onHover={setActive}
+            onPick={insertMention}
+          />
         </PopoverContent>
       </Popover>
+
+      <div className="flex border-t border-border">
+        <div className="w-1/4 min-w-0">
+          <RequesterField workspaceId={activeWorkspace} value={requester} onChange={onRequester} />
+        </div>
+        <input
+          value={request}
+          onChange={(event) => onRequest(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canLog) {
+              event.preventDefault()
+              void submit(false)
+            }
+          }}
+          placeholder="Request"
+          aria-label="Request"
+          className="h-9 w-3/4 min-w-0 border-l border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
+        />
+      </div>
 
       {previews.length > 0 ? (
         <ul className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
@@ -583,18 +572,22 @@ export function RequestComposer({
           </Tooltip>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!canTrack}
-            loading={pending}
-            onClick={() => void submit(true)}
-          >
-            Log and track
-          </Button>
-          <Button type="button" disabled={!canLog} loading={pending} onClick={() => void submit(false)}>
-            Log
-          </Button>
+          <DisabledReasonTooltip reason={trackReason}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!canTrack}
+              loading={pending}
+              onClick={() => void submit(true)}
+            >
+              Log and track
+            </Button>
+          </DisabledReasonTooltip>
+          <DisabledReasonTooltip reason={logReason}>
+            <Button type="button" disabled={!canLog} loading={pending} onClick={() => void submit(false)}>
+              Log
+            </Button>
+          </DisabledReasonTooltip>
         </div>
       </div>
 

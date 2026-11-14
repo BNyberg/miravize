@@ -1,23 +1,20 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-export type TimerSpan = 1 | 5 | 7
+import { useAuth } from '@/features/auth/auth-context'
+import { parseTimerSpan, readUserPreferences, type TimerSpan } from '@/lib/user-preferences'
+
+export type { TimerSpan }
 
 const KEY = 'timer-grid-span'
-const SPANS: TimerSpan[] = [1, 5, 7]
 const DEFAULT_SPAN: TimerSpan = 5
 
-function parseSpan(value: number): TimerSpan | null {
-  return SPANS.includes(value as TimerSpan) ? (value as TimerSpan) : null
-}
-
-function readStored(): TimerSpan {
+function readStored(): TimerSpan | null {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw == null) return DEFAULT_SPAN
-    const parsed = Number(raw)
-    return parseSpan(parsed) ?? DEFAULT_SPAN
+    if (raw == null) return null
+    return parseTimerSpan(Number(raw))
   } catch {
-    return DEFAULT_SPAN
+    return null
   }
 }
 
@@ -30,10 +27,16 @@ function writeStored(span: TimerSpan) {
 }
 
 export function useTimerSpan() {
-  const [span, setSpanState] = useState<TimerSpan>(readStored)
+  const { user } = useAuth()
+  const [span, setSpanState] = useState<TimerSpan>(() => readStored() ?? DEFAULT_SPAN)
+
+  useEffect(() => {
+    if (readStored() != null) return
+    setSpanState(readUserPreferences(user).timer_span)
+  }, [user])
 
   const setSpan = useCallback((next: TimerSpan) => {
-    const clamped = parseSpan(next) ?? DEFAULT_SPAN
+    const clamped = parseTimerSpan(next) ?? DEFAULT_SPAN
     setSpanState(clamped)
     writeStored(clamped)
   }, [])

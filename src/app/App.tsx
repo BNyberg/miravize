@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 
 import { AuthShell } from '@/components/auth/auth-shell'
+import { SeedSavedTheme } from '@/components/theme-provider'
 import { AppShell } from '@/components/layout/app-shell'
 import { ToastHost } from '@/components/ui/toast'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -13,6 +14,7 @@ import { LoginPage } from '@/pages/login-page'
 import { ProjectsPage } from '@/pages/projects-page'
 import { RequestsPage } from '@/pages/requests-page'
 import { TasksPage } from '@/pages/tasks-page'
+import { ProfilePage } from '@/pages/profile-page'
 import { SettingsPage } from '@/pages/settings-page'
 import { SignupPage } from '@/pages/signup-page'
 import { TimerPage } from '@/pages/timer-page'
@@ -53,6 +55,7 @@ export function App() {
 
   return (
     <TooltipProvider>
+    <SeedSavedTheme />
     <ToastHost />
     <Routes>
       <Route
@@ -87,6 +90,7 @@ export function App() {
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
       </Route>
     </Routes>
     </TooltipProvider>

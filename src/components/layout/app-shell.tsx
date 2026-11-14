@@ -9,16 +9,20 @@ import {
   Gear,
   CheckSquare,
   List,
-  ListChecks,
   Moon,
   SignOut,
   Sun,
+  User,
 } from '@phosphor-icons/react'
+import { InboxIcon } from '@heroicons/react/24/outline'
 import { useTheme } from 'next-themes'
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
+import { AccountPhoto } from '@/components/account/account-avatar'
+import { avatarUrlFromUser } from '@/lib/avatar-image'
 import { BrandMark } from '@/components/brand-mark'
+import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { useSidebarCollapsed } from '@/components/layout/use-sidebar-collapsed'
 import { RunningBanner } from '@/components/layout/running-banner'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -32,7 +36,6 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/features/auth/auth-context'
-import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
@@ -40,22 +43,15 @@ import { cn } from '@/lib/utils'
 const nav = [
   { to: '/timer', label: 'Timer', icon: Clock },
   { to: '/reports', label: 'Report', icon: ChartBar },
-  { to: '/requests', label: 'Requests', icon: ListChecks },
+  { to: '/requests', label: 'Requests', icon: InboxIcon },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare },
   { to: '/projects', label: 'Projects', icon: Folder },
   { to: '/settings', label: 'Settings', icon: Gear },
 ]
 
-function initialsFromEmail(email: string | undefined) {
-  const local = email?.split('@')[0] ?? ''
-  const letters = local.replace(/[^a-zA-Z]/g, '')
-  if (letters.length >= 2) return letters.slice(0, 2).toUpperCase()
-  if (local.length >= 2) return local.slice(0, 2).toUpperCase()
-  return (email?.slice(0, 2) ?? '?').toUpperCase()
-}
-
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
-  const { workspaces, workspaceId, setWorkspaceId } = useWorkspace()
+  const { workspaces, workspaceId, isAll, setWorkspaceId } = useWorkspace()
+  const active = workspaces.find((workspace) => workspace.id === workspaceId)
 
   return (
     <>
@@ -64,15 +60,21 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
           className="sidebar-workspace-trigger mb-4 pl-2"
           aria-label="Workspace"
         >
-          <Buildings aria-hidden="true" className="size-4 shrink-0" />
+          {isAll || !active ? (
+            <Buildings aria-hidden="true" className="size-4 shrink-0" />
+          ) : (
+            <WorkspaceMark icon={active.icon} />
+          )}
           <span className="sidebar-fade min-w-0 flex-1 truncate text-left">
             <SelectValue />
           </span>
         </SelectTrigger>
         <SelectContent className="min-w-56">
-          <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
+          <SelectItem value={ALL_WORKSPACES} leading={<Buildings aria-hidden="true" className="size-4" />}>
+            All workspaces
+          </SelectItem>
           {workspaces.map((ws) => (
-            <SelectItem key={ws.id} value={ws.id}>
+            <SelectItem key={ws.id} value={ws.id} leading={<WorkspaceMark icon={ws.icon} />}>
               {ws.name}
             </SelectItem>
           ))}
@@ -105,62 +107,91 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-function UserFooter({
-  email,
+function AccountMenuItems({
   onSignOut,
+  onNavigate,
 }: {
-  email: string | undefined
   onSignOut: () => void
+  onNavigate?: () => void
 }) {
+  const navigate = useNavigate()
   const { theme, setTheme, resolvedTheme } = useTheme()
   const current = theme === 'system' ? resolvedTheme : theme
-  const initials = initialsFromEmail(email)
 
   return (
-    <div className="sidebar-account mt-auto rounded-lg border border-border bg-card p-2 dark:bg-muted">
-      <div className="flex items-center gap-1">
+    <>
+      <DropdownMenuItem
+        onSelect={() => {
+          onNavigate?.()
+          navigate('/profile')
+        }}
+      >
+        <User aria-hidden="true" className="size-4" />
+        Profile
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => setTheme(current === 'dark' ? 'light' : 'dark')}>
+        {current === 'dark' ? (
+          <Sun aria-hidden="true" className="size-4" />
+        ) : (
+          <Moon aria-hidden="true" className="size-4" />
+        )}
+        Toggle theme
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={onSignOut}>
+        <SignOut aria-hidden="true" className="size-4" />
+        Sign out
+      </DropdownMenuItem>
+    </>
+  )
+}
+
+function UserFooter({
+  email,
+  name,
+  avatarUrl,
+  onSignOut,
+  onNavigate,
+}: {
+  email: string | undefined
+  name: string | undefined
+  avatarUrl: string | undefined
+  onSignOut: () => void
+  onNavigate?: () => void
+}) {
+  const label = name?.trim() || email
+
+  return (
+    <div className="sidebar-account mt-auto flex items-stretch overflow-hidden rounded-lg border border-border bg-card dark:bg-muted">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="sidebar-account-photo flex shrink-0 items-center justify-center overflow-hidden bg-muted"
+            aria-label="Account menu"
+          >
+            <AccountPhoto email={email} avatarUrl={avatarUrl} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" side="top" filter={false}>
+          <AccountMenuItems onSignOut={onSignOut} onNavigate={onNavigate} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <div className="sidebar-fade flex min-w-0 flex-1 items-center gap-1 px-2">
+        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{label}</p>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium"
+              className="flex size-8 shrink-0 items-center justify-center rounded-md"
               aria-label="Account menu"
             >
-              {initials}
+              <DotsThree aria-hidden="true" className="size-4" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top" filter={false}>
-            <DropdownMenuItem onSelect={() => setTheme(current === 'dark' ? 'light' : 'dark')}>
-              {current === 'dark' ? (
-                <Sun aria-hidden="true" className="size-4" />
-              ) : (
-                <Moon aria-hidden="true" className="size-4" />
-              )}
-              Toggle theme
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onSignOut}>
-              <SignOut aria-hidden="true" className="size-4" />
-              Sign out
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" side="top" filter={false}>
+            <AccountMenuItems onSignOut={onSignOut} onNavigate={onNavigate} />
           </DropdownMenuContent>
         </DropdownMenu>
-        <p className="sidebar-fade min-w-0 flex-1 truncate text-xs text-muted-foreground">{email}</p>
-        <div className="sidebar-fade flex shrink-0 items-center">
-          <ThemeToggle />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="More account actions">
-                <DotsThree aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" filter={false}>
-              <DropdownMenuItem onSelect={onSignOut}>
-                <SignOut aria-hidden="true" className="size-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
       </div>
     </div>
   )
@@ -171,9 +202,10 @@ export function AppShell() {
   const navigate = useNavigate()
   const pathname = useLocation().pathname
   const timerRoute = pathname === '/timer'
-  const projectsRoute = pathname === '/projects'
-  const { data: running } = useRunningTimer()
-  const pagePad = running ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/reports'
+  const fillRoute =
+    pathname === '/projects' || pathname === '/requests' || pathname === '/tasks' || pathname === '/settings'
+  const [bannerSpace, setBannerSpace] = useState(false)
+  const pagePad = bannerSpace ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/reports'
   const [open, setOpen] = useState(false)
   const { collapsed, toggle } = useSidebarCollapsed()
 
@@ -206,12 +238,12 @@ export function AppShell() {
         </Button>
         <div className="h-full overflow-hidden">
         <div className="sidebar-panel flex h-full w-full min-w-0 flex-col px-4 pb-4 pt-3">
-          <div className="sidebar-brand mb-6 flex h-9 items-center gap-1.5 text-[18px] font-semibold">
-            <BrandMark className="size-8" />
+          <div className="sidebar-brand mb-4 flex h-9 items-center gap-1.5 text-[18px] font-semibold">
+            <BrandMark className="size-9" />
             <span className="sidebar-fade truncate">Miravize</span>
           </div>
           <NavItems />
-          <UserFooter email={user?.email} onSignOut={() => void signOut()} />
+          <UserFooter email={user?.email} name={typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : undefined} avatarUrl={avatarUrlFromUser(user?.user_metadata)} onSignOut={() => void signOut()} />
         </div>
         </div>
       </aside>
@@ -224,13 +256,13 @@ export function AppShell() {
               </Button>
             </SheetTrigger>
             <SheetContent>
-              <div className="mb-6 flex items-center gap-1.5 text-[18px] font-semibold">
+              <div className="mb-4 flex items-center gap-1.5 text-[18px] font-semibold">
                 <BrandMark className="size-8" />
                 Miravize
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
                 <NavItems onNavigate={() => setOpen(false)} />
-                <UserFooter email={user?.email} onSignOut={() => void signOut()} />
+                <UserFooter email={user?.email} name={typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : undefined} avatarUrl={avatarUrlFromUser(user?.user_metadata)} onSignOut={() => void signOut()} onNavigate={() => setOpen(false)} />
               </div>
             </SheetContent>
           </Sheet>
@@ -247,17 +279,17 @@ export function AppShell() {
           className={
             timerRoute
               ? 'flex min-h-0 flex-1 flex-col'
-              : projectsRoute
+              : fillRoute
                 ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
                 : 'min-h-0 min-w-0 flex-1 overflow-y-auto'
           }
         >
-          {timerRoute ? null : <RunningBanner />}
+          {timerRoute ? null : <RunningBanner onPresenceChange={setBannerSpace} />}
           <div
             className={
               timerRoute
                 ? 'contents'
-                : projectsRoute
+                : fillRoute
                   ? cn('flex min-h-0 flex-1 flex-col', pagePad)
                   : pagePad
             }

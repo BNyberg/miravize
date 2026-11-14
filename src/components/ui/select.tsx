@@ -77,8 +77,9 @@ function SelectContent({
 function SelectItem({
   className,
   children,
+  leading,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+}: React.ComponentProps<typeof SelectPrimitive.Item> & { leading?: React.ReactNode }) {
   return (
     <SelectPrimitive.Item
       className={cn(
@@ -87,6 +88,7 @@ function SelectItem({
       )}
       {...props}
     >
+      {leading ? <span className="mr-2 flex shrink-0 items-center">{leading}</span> : null}
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
       <span className="absolute right-2 flex size-4 items-center justify-center">
         <SelectPrimitive.ItemIndicator>

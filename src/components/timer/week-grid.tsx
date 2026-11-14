@@ -273,6 +273,8 @@ function WeekGrid({
                 const running = slice.entry.stopped_at == null
                 const color = slice.entry.project?.color || '#5E5C57'
                 const label = entryLabel(slice.entry, clients, projectClients)
+                const blockHeight = heightFor(slice.start, slice.end, hourPx)
+                const inlineDescription = dayView && blockHeight >= 32
                 return (
                   <Tooltip key={slice.entry.id}>
                     <TooltipTrigger asChild>
@@ -287,7 +289,7 @@ function WeekGrid({
                     }
                     style={{
                       top: topFor(slice.start, day, hourPx),
-                      height: heightFor(slice.start, slice.end, hourPx),
+                      height: blockHeight,
                       left: `calc(${(slice.lane / slice.lanes) * 100}% + 2px)`,
                       width: `calc(${100 / slice.lanes}% - 4px)`,
                       background: running ? `color-mix(in srgb, ${color} var(--running-fill), transparent)` : color,
@@ -321,7 +323,7 @@ function WeekGrid({
                       }
                     }}
                   >
-                    {dayView ? (
+                    {inlineDescription ? (
                       <div className="flex h-full items-center gap-2">
                         <DescriptionField
                           value={slice.entry.description}

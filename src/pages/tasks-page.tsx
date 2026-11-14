@@ -331,20 +331,22 @@ export function TasksPage() {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
       <h1 className="sr-only">Tasks</h1>
-      <TaskComposer
-        catalog={catalog}
-        workspaceId={workspaceId}
-        isAll={isAll}
-        pending={save.isPending}
-        requester={requester}
-        task={task}
-        onRequester={setRequester}
-        onTask={setTask}
-        onSubmit={(input) => save.mutateAsync(input)}
-      />
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="shrink-0">
+        <TaskComposer
+          catalog={catalog}
+          workspaceId={workspaceId}
+          isAll={isAll}
+          pending={save.isPending}
+          requester={requester}
+          task={task}
+          onRequester={setRequester}
+          onTask={setTask}
+          onSubmit={(input) => save.mutateAsync(input)}
+        />
+      </div>
+      <div className="flex shrink-0 flex-wrap items-end gap-3">
         <Filter label="ID" htmlFor="task-id" className="w-28">
           <Input
             id="task-id"
@@ -438,7 +440,7 @@ export function TasksPage() {
           </Button>
         </div>
       </div>
-      <div className="min-w-0 max-h-[calc(2.25rem+13*3rem)] overflow-auto rounded-lg border border-border bg-card">
+      <div className="min-h-[calc(2.25rem+5*3rem)] min-w-0 flex-1 overflow-auto rounded-lg border border-border bg-card">
         <Table className="w-max min-w-full">
           <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:pr-0">
             <TableRow>

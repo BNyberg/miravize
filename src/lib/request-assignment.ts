@@ -272,17 +272,31 @@ export function mentionChoices(
     }
     for (const activity of catalog.activities.filter((row) => inWorkspace(row.workspace_id))) {
       if (q && !activity.name.toLowerCase().includes(q)) continue
-      items.push({ kind: 'activity', id: activity.id, token: activity.name.replace(/\s+/g, ''), label: activity.name })
+      const project = projects.find((row) => row.id === activity.project_id)
+      items.push({
+        kind: 'activity',
+        id: activity.id,
+        token: activity.name.replace(/\s+/g, ''),
+        label: activity.name,
+        color: project?.color,
+      })
     }
     for (const client of catalog.clients.filter((row) => inWorkspace(row.workspace_id))) {
       if (q && !client.name.toLowerCase().includes(q)) continue
       items.push({ kind: 'client', id: client.id, token: client.name.replace(/\s+/g, ''), label: client.name })
     }
   } else {
+    const project = catalog.projects.find((row) => row.id === assignment.projectId)
     for (const activity of catalog.activities.filter((row) => row.project_id === assignment.projectId)) {
       if (activity.id === assignment.activityId) continue
       if (q && !activity.name.toLowerCase().includes(q)) continue
-      items.push({ kind: 'activity', id: activity.id, token: activity.name.replace(/\s+/g, ''), label: activity.name })
+      items.push({
+        kind: 'activity',
+        id: activity.id,
+        token: activity.name.replace(/\s+/g, ''),
+        label: activity.name,
+        color: project?.color,
+      })
     }
     const allowed = new Set(
       catalog.projectClients.filter((row) => row.project_id === assignment.projectId).map((row) => row.client_id),
@@ -293,5 +307,5 @@ export function mentionChoices(
       items.push({ kind: 'client', id: client.id, token: client.name.replace(/\s+/g, ''), label: client.name })
     }
   }
-  return items.slice(0, 20)
+  return items
 }

@@ -5,6 +5,7 @@ export type Workspace = {
   name: string
   created_by: string
   settings: Record<string, unknown>
+  icon: string | null
   created_at: string
 }
 

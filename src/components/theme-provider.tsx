@@ -1,5 +1,8 @@
 import { ThemeProvider as NextThemesProvider, useTheme } from 'next-themes'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
+
+import { useAuth } from '@/features/auth/auth-context'
+import { readUserPreferences } from '@/lib/user-preferences'
 
 function FaviconSync() {
   const { resolvedTheme } = useTheme()
@@ -19,9 +22,28 @@ function FaviconSync() {
   return null
 }
 
+export function SeedSavedTheme() {
+  const { user } = useAuth()
+  const { setTheme } = useTheme()
+  const seeded = useRef(false)
+
+  useEffect(() => {
+    if (seeded.current || !user) return
+    seeded.current = true
+    try {
+      if (localStorage.getItem('theme') != null) return
+    } catch {
+      return
+    }
+    setTheme(readUserPreferences(user).theme)
+  }, [setTheme, user])
+
+  return null
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   return (
-    <NextThemesProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+    <NextThemesProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <FaviconSync />
       {children}
     </NextThemesProvider>

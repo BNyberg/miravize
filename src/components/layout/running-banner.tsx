@@ -1,7 +1,9 @@
-import { Buildings, Pause } from '@phosphor-icons/react'
+import { Pause } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 
 import { EntryMetaChips } from '@/components/timer/entry-editor'
+import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { Button } from '@/components/ui/button'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
@@ -11,17 +13,43 @@ import { qk } from '@/lib/query-keys'
 import { formatDuration } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
 import { updateEntryDescription, updateRunningEntry } from '@/lib/timer'
-import type { Activity, Client, Project, ProjectClient } from '@/types'
+import { cn } from '@/lib/utils'
+import type { Activity, Client, Project, ProjectClient, TimeEntry } from '@/types'
 
-export function RunningBanner() {
+export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (present: boolean) => void }) {
   const { data: running } = useRunningTimer()
+  const [shown, setShown] = useState<TimeEntry | null>(running ?? null)
+  const [open, setOpen] = useState(Boolean(running))
   const { workspaceId, isAll, workspaces } = useWorkspace()
   const catalog = useCatalog()
   const now = useNow(Boolean(running))
   const qc = useQueryClient()
 
-  const otherWorkspace = Boolean(running && !isAll && running.workspace_id !== workspaceId)
-  const otherId = otherWorkspace && running ? running.workspace_id : null
+  useEffect(() => {
+    if (running) {
+      setShown(running)
+      setOpen(true)
+    } else {
+      setOpen(false)
+    }
+  }, [running])
+
+  useEffect(() => {
+    onPresenceChange?.(Boolean(shown))
+  }, [shown, onPresenceChange])
+
+  useEffect(() => {
+    if (open || !shown) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setShown(null)
+      return
+    }
+    const timer = window.setTimeout(() => setShown(null), 160)
+    return () => window.clearTimeout(timer)
+  }, [open, shown])
+
+  const otherWorkspace = Boolean(shown && !isAll && shown.workspace_id !== workspaceId)
+  const otherId = otherWorkspace && shown ? shown.workspace_id : null
 
   const otherProjects = useQuery({
     queryKey: qk.projects(otherId ?? 'running-other'),
@@ -106,10 +134,10 @@ export function RunningBanner() {
       description: string
       billable: boolean
     }) => {
-      if (!running) throw new Error('No running timer')
+      if (!shown) throw new Error('No running timer')
       return updateRunningEntry({
-        id: running.id,
-        workspaceId: running.workspace_id,
+        id: shown.id,
+        workspaceId: shown.workspace_id,
         projectId: input.projectId || null,
         description: input.description,
         billable: input.billable,
@@ -122,36 +150,48 @@ export function RunningBanner() {
     onSuccess: refresh,
   })
 
-  if (!running) return null
+  if (!shown) return null
 
-  const elapsed = Math.floor((now - new Date(running.started_at).getTime()) / 1000)
-  const workspaceName = workspaces.find((workspace) => workspace.id === running.workspace_id)?.name ?? 'Workspace'
+  const elapsed = Math.floor((now - new Date(shown.started_at).getTime()) / 1000)
+  const runningWorkspace = workspaces.find((workspace) => workspace.id === shown.workspace_id)
+  const workspaceName = runningWorkspace?.name ?? 'Workspace'
   const projects = (otherWorkspace ? (otherProjects.data ?? []) : catalog.projects).filter(
-    (project) => project.workspace_id === running.workspace_id,
+    (project) => project.workspace_id === shown.workspace_id,
   )
   const activities = otherWorkspace ? (otherActivities.data ?? []) : catalog.activities
   const clients = otherWorkspace ? (otherClients.data ?? []) : catalog.clients
   const projectClients = otherWorkspace ? (otherProjectClients.data ?? []) : catalog.projectClients
 
   return (
-    <div className="sticky top-0 z-20">
+    <div className="running-banner sticky top-0 z-20">
+    <div
+      className={cn(
+        'grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none',
+        open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+      )}
+      onTransitionEnd={(event) => {
+        if (event.target !== event.currentTarget || event.propertyName !== 'grid-template-rows') return
+        if (!open) setShown(null)
+      }}
+    >
+    <div className={cn('min-h-0 overflow-hidden', !open && 'pointer-events-none')}>
     <div className="flex items-center gap-2 border-b border-border bg-accent/70 px-4 py-3 text-sm backdrop-blur-md md:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {otherWorkspace ? (
           <span className="inline-flex h-8 max-w-40 shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2.5 text-sm">
-            <Buildings aria-hidden="true" className="size-4 shrink-0" />
+            <WorkspaceMark icon={runningWorkspace?.icon} />
             <span className="truncate">{workspaceName}</span>
           </span>
         ) : null}
         <EntryMetaChips
-          workspaceId={running.workspace_id}
-          projectId={running.project_id ?? ''}
-          activityId={running.activity_id ?? ''}
-          clientIds={running.time_entry_clients?.map((row) => row.client_id) ?? []}
-          requestIds={running.time_entry_requests?.map((row) => row.request_id) ?? []}
-          taskIds={running.time_entry_tasks?.map((row) => row.task_id) ?? []}
-          description={running.description}
-          billable={running.billable}
+          workspaceId={shown.workspace_id}
+          projectId={shown.project_id ?? ''}
+          activityId={shown.activity_id ?? ''}
+          clientIds={shown.time_entry_clients?.map((row) => row.client_id) ?? []}
+          requestIds={shown.time_entry_requests?.map((row) => row.request_id) ?? []}
+          taskIds={shown.time_entry_tasks?.map((row) => row.task_id) ?? []}
+          description={shown.description}
+          billable={shown.billable}
           projects={projects}
           activities={activities}
           clients={clients}
@@ -159,9 +199,9 @@ export function RunningBanner() {
           onChange={(next) => assignRunning.mutate(next)}
         />
         <input
-          key={`${running.id}:${running.description}`}
+          key={`${shown.id}:${shown.description}`}
           aria-label="Description"
-          defaultValue={running.description}
+          defaultValue={shown.description}
           placeholder="Description"
           className="h-9 min-w-0 flex-1 rounded-md bg-transparent px-1 text-sm outline-none transition-colors duration-75 hover:bg-muted placeholder:text-muted-foreground"
           onKeyDown={(event) => {
@@ -171,8 +211,8 @@ export function RunningBanner() {
             }
           }}
           onBlur={(event) => {
-            if (event.target.value !== running.description) {
-              describe.mutate({ id: running.id, description: event.target.value })
+            if (event.target.value !== shown.description) {
+              describe.mutate({ id: shown.id, description: event.target.value })
             }
           }}
         />
@@ -182,6 +222,8 @@ export function RunningBanner() {
         <Pause aria-hidden="true" />
         Stop
       </Button>
+    </div>
+    </div>
     </div>
     <div className="pointer-events-none h-4 md:h-6" aria-hidden="true" />
     </div>
