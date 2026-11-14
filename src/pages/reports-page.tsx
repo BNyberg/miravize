@@ -561,7 +561,7 @@ export function ReportPage() {
           projectColor,
           clientName,
         },
-        `report-${from}-to-${to}.pdf`,
+        `miravize_report_${from}_to_${to}.pdf`,
       )
     } catch (error) {
       toast({
@@ -868,7 +868,7 @@ function Donut({
               </div>
             ) : null}
           </div>
-          <ul className="min-w-0 flex-1 space-y-0.5">
+          <ul className="max-h-[7.5rem] min-w-0 flex-1 space-y-0.5 overflow-y-auto">
             {arcs.map((slice) => (
               <li key={slice.id}>
                 <button
@@ -1053,8 +1053,8 @@ function ReportTable({
   const requestSeconds = report.requestTime.reduce((sum, row) => sum + row.seconds, 0)
   const taskSeconds = report.taskTime.reduce((sum, row) => sum + row.seconds, 0)
   return (
-    <section>
-      <div className="mb-2 flex items-center gap-3">
+    <section className="flex min-h-[18rem] flex-1 flex-col">
+      <div className="mb-2 flex shrink-0 items-center gap-3">
         <div className="flex items-center gap-1.5">
           <h2 className="text-sm font-medium">Breakdown</h2>
           <TooltipProvider>
@@ -1065,7 +1065,7 @@ function ReportTable({
                 </button>
               </TooltipTrigger>
               <TooltipContent>
-                Requests and tasks include items with no logged time. Hours are only time linked to an entry, split evenly across the linked items. Total hours and amount are all logged time. A requester has no total hours or amount.
+                Requests and tasks include items without logged time. When multiple items are linked to the same time entry, the logged hours are divided equally among them to avoid double-counting. Total hours and amount reflect all logged time. Requesters do not have total hours or amounts.
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1095,7 +1095,7 @@ function ReportTable({
       ) : empty ? (
         <p className="text-sm text-muted-foreground">No time, requests, or tasks in this range.</p>
       ) : (
-        <div className="max-h-[25rem] overflow-auto rounded-lg border border-border bg-card print:max-h-none print:overflow-visible">
+        <div className="min-h-[18rem] flex-1 overflow-auto rounded-lg border border-border bg-card print:max-h-none print:min-h-0 print:overflow-visible">
           <Table className="min-w-[72rem]">
             <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card">
               <TableRow>
@@ -1534,7 +1534,7 @@ function flatLines(
 
 function ReportSkeleton() {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="min-h-[18rem] flex-1 overflow-hidden rounded-lg border border-border bg-card">
       <Table>
         <TableHeader>
           <TableRow>

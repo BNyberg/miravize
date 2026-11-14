@@ -1,4 +1,4 @@
-import html2canvas from 'html2canvas'
+import html2canvas from 'html2canvas-pro'
 import { jsPDF } from 'jspdf'
 import { createRoot } from 'react-dom/client'
 import type { ComponentProps } from 'react'
@@ -54,7 +54,7 @@ export async function downloadReportPdf(props: ComponentProps<typeof ReportPrint
     }
     let pdf: jsPDF | null = null
     let offset = 0
-    pages.forEach((height, page) => {
+    for (const height of pages) {
       pdf = addSheetPage(pdf, pageWidth, height)
       const sliceHeight = Math.min(Math.round(canvas.width * (height / pageWidth)), canvas.height - offset)
       const slice = document.createElement('canvas')
@@ -67,7 +67,7 @@ export async function downloadReportPdf(props: ComponentProps<typeof ReportPrint
       context.drawImage(canvas, 0, offset, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight)
       pdf.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageWidth, (sliceHeight / canvas.width) * pageWidth)
       offset += sliceHeight
-    })
+    }
     if (!pdf) throw new Error('Report sheet did not render.')
     addBrandLink(pdf, sheet, pageWidth, pages)
     pdf.save(filename)

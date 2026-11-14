@@ -1,4 +1,4 @@
-import { PlayIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon } from '@heroicons/react/24/outline'
 import { useState } from 'react'
 
 import {
@@ -9,6 +9,7 @@ import {
   type RequestAssignment,
   type RequestCatalog,
 } from '@/lib/request-assignment'
+import { RowTrackButton } from '@/components/timer/row-track-button'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -26,7 +27,6 @@ import {
   TableSelectValue,
 } from '@/components/ui/table-select'
 import { TableCell, TableRow } from '@/components/ui/table'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { requestCode } from '@/lib/request-code'
 import { cn } from '@/lib/utils'
 import type { SupportRequest } from '@/types'
@@ -96,7 +96,10 @@ export function RequestLedgerRow({
   showWorkspace,
   onPatch,
   tracking,
+  active,
+  stopping,
   onTrack,
+  onStop,
   deleting,
   onDelete,
 }: {
@@ -106,7 +109,10 @@ export function RequestLedgerRow({
   showWorkspace: boolean
   onPatch: (next: RequestPatch) => void
   tracking: boolean
+  active: boolean
+  stopping: boolean
   onTrack: () => void
+  onStop: () => void
   deleting: boolean
   onDelete: () => void
 }) {
@@ -254,27 +260,14 @@ export function RequestLedgerRow({
       </TableCell>
       <TableCell className="sticky right-0 z-10 w-20 border-l border-border bg-card">
         <div className="flex items-center gap-1">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    aria-label="Log and track"
-                    disabled={tracking || !row.project_id}
-                    loading={tracking}
-                    onClick={onTrack}
-                  >
-                    <PlayIcon aria-hidden="true" />
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{row.project_id ? 'Log and track' : 'Choose a project first'}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <RowTrackButton
+            active={active}
+            starting={tracking}
+            stopping={stopping}
+            canStart={Boolean(row.project_id)}
+            onStart={onTrack}
+            onStop={onStop}
+          />
           <Button
             type="button"
             variant="outline"

@@ -1,4 +1,4 @@
-import { PlayIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon } from '@heroicons/react/24/outline'
 import { useState } from 'react'
 
 import {
@@ -9,6 +9,7 @@ import {
   type RequestAssignment,
   type RequestCatalog,
 } from '@/lib/request-assignment'
+import { RowTrackButton } from '@/components/timer/row-track-button'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -26,12 +27,17 @@ import {
   TableSelectValue,
 } from '@/components/ui/table-select'
 import { TableCell, TableRow } from '@/components/ui/table'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { taskCode } from '@/lib/task-code'
 import { cn } from '@/lib/utils'
 import type { Task, TaskStatus } from '@/types'
 
 const NONE = '__none__'
+
+const STATUS_CLASS: Record<TaskStatus, string> = {
+  todo: 'text-destructive',
+  doing: 'text-amber-800 dark:text-amber-300',
+  done: '',
+}
 
 const STATUSES: { value: TaskStatus; label: string }[] = [
   { value: 'todo', label: 'Todo' },
@@ -103,7 +109,10 @@ export function TaskLedgerRow({
   showWorkspace,
   onPatch,
   tracking,
+  active,
+  stopping,
   onTrack,
+  onStop,
   deleting,
   onDelete,
 }: {
@@ -113,7 +122,10 @@ export function TaskLedgerRow({
   showWorkspace: boolean
   onPatch: (next: TaskPatch) => void
   tracking: boolean
+  active: boolean
+  stopping: boolean
   onTrack: () => void
+  onStop: () => void
   deleting: boolean
   onDelete: () => void
 }) {
@@ -178,12 +190,12 @@ export function TaskLedgerRow({
       </TableCell>
       <TableCell className="min-w-[8rem]">
         <TableSelect value={row.status} onValueChange={(value) => persist(assignment, { status: value as TaskStatus })}>
-          <TableSelectTrigger aria-label="Status">
+          <TableSelectTrigger aria-label="Status" className={STATUS_CLASS[row.status]}>
             <TableSelectValue />
           </TableSelectTrigger>
           <TableSelectContent>
             {STATUSES.map((status) => (
-              <TableSelectItem key={status.value} value={status.value}>
+              <TableSelectItem key={status.value} value={status.value} className={STATUS_CLASS[status.value]}>
                 {status.label}
               </TableSelectItem>
             ))}
@@ -278,27 +290,17 @@ export function TaskLedgerRow({
       </TableCell>
       <TableCell className="sticky right-0 z-10 w-20 border-l border-border bg-card">
         <div className="flex items-center gap-1">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    aria-label="Log and track"
-                    disabled={tracking || !row.project_id}
-                    loading={tracking}
-                    onClick={onTrack}
-                  >
-                    <PlayIcon aria-hidden="true" />
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{row.project_id ? 'Log and track' : 'Choose a project first'}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <RowTrackButton
+            active={active}
+            starting={tracking}
+            stopping={stopping}
+            canStart={Boolean(row.project_id) && row.status !== 'done'}
+            blockedLabel={
+              row.status === 'done' ? 'This task is done. Change its status to work on it again.' : undefined
+            }
+            onStart={onTrack}
+            onStop={onStop}
+          />
           <Button
             type="button"
             variant="outline"

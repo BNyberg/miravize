@@ -11,11 +11,12 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useCatalog } from '@/features/projects/use-catalog'
+import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { assignmentClientMode, displayClientIds } from '@/lib/request-assignment'
 import { requestCode } from '@/lib/request-code'
 import { qk } from '@/lib/query-keys'
-import { startTimer } from '@/lib/timer'
+import { startTimer, stopTimer } from '@/lib/timer'
 import { supabase } from '@/lib/supabase'
 import { toast } from '@/components/ui/toast'
 import type { SupportRequest } from '@/types'
@@ -71,6 +72,11 @@ export function RequestsPage() {
   const { workspaceId, isAll, workspaces } = useWorkspace()
   const catalog = useCatalog()
   const qc = useQueryClient()
+  const { data: running } = useRunningTimer()
+  const activeRequestIds = useMemo(
+    () => new Set(running?.time_entry_requests?.map((link) => link.request_id) ?? []),
+    [running],
+  )
   const [from, setFrom] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [to, setTo] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'))
   const [taskId, setTaskId] = useState('')
@@ -241,6 +247,15 @@ export function RequestsPage() {
       void qc.invalidateQueries({ queryKey: ['entries'] })
     },
     onError: (err: Error) => toast({ tone: 'error', title: 'Could not start tracking', description: err.message }),
+  })
+
+  const stop = useMutation({
+    mutationFn: stopTimer,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.running })
+      void qc.invalidateQueries({ queryKey: ['entries'] })
+    },
+    onError: (err: Error) => toast({ tone: 'error', title: 'Could not stop tracking', description: err.message }),
   })
 
   const remove = useMutation({
@@ -419,7 +434,10 @@ export function RequestsPage() {
                 workspaceName={workspaces.find((ws) => ws.id === row.workspace_id)?.name}
                 onPatch={(next) => patch.mutate(next)}
                 tracking={track.isPending && track.variables?.id === row.id}
+                active={activeRequestIds.has(row.id)}
+                stopping={stop.isPending && activeRequestIds.has(row.id)}
                 onTrack={() => track.mutate(row)}
+                onStop={() => stop.mutate()}
                 deleting={remove.isPending && remove.variables?.id === row.id}
                 onDelete={() => remove.mutate(row)}
               />

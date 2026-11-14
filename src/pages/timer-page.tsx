@@ -57,6 +57,14 @@ import {
 import { cn } from '@/lib/utils'
 import type { TimeEntry } from '@/types'
 
+/** 5-day view starts Monday. Shift so Today still lands in the window on the weekend. */
+function fiveDayShift(now: Date) {
+  const day = now.getDay()
+  if (day === 6) return 1
+  if (day === 0) return 2
+  return 0
+}
+
 function useNarrow() {
   const [narrow, setNarrow] = useState(false)
   useEffect(() => {
@@ -313,7 +321,7 @@ export function TimerPage() {
           {error}
         </div>
       ) : null}
-      <div className="flex items-center gap-2 px-4 py-3 md:px-6">
+      <div className="@container flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-3 md:px-6">
         {narrow ? null : (
           <div className="flex h-9 overflow-hidden rounded-md border border-border">
             {(
@@ -349,8 +357,9 @@ export function TimerPage() {
         <Button
           variant="outline"
           onClick={() => {
-            setAnchor(new Date())
-            setShiftDays(0)
+            const now = new Date()
+            setAnchor(now)
+            setShiftDays(span === 5 ? fiveDayShift(now) : 0)
             setFocusNowAt((current) => current + 1)
           }}
         >
@@ -419,8 +428,8 @@ export function TimerPage() {
           )}
         </div>
         {running ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+          <div className="flex min-w-0 basis-full items-center gap-2 @min-[72rem]:basis-auto @min-[72rem]:flex-1">
+            <span className="hidden h-4 w-px shrink-0 bg-border @min-[72rem]:block" aria-hidden="true" />
             <EntryMetaChips
               workspaceId={running.workspace_id}
               projectId={running.project_id ?? ''}
@@ -454,16 +463,15 @@ export function TimerPage() {
                 }
               }}
             />
-          </div>
-        ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-3">
-          {running ? <span className="font-mono text-sm tabular-nums">{formatDuration(elapsed)}</span> : null}
-          {running ? (
+            <span className="ml-auto font-mono text-sm tabular-nums">{formatDuration(elapsed)}</span>
             <Button onClick={() => stop.mutate()} disabled={stop.isPending}>
               <StopIcon aria-hidden="true" />
               Stop
             </Button>
-          ) : (
+          </div>
+        ) : null}
+        {running ? null : (
+        <div className="ml-auto flex shrink-0 items-center gap-3">
             <div className="flex">
               {isAll ? (
                 <Tooltip>
@@ -562,8 +570,8 @@ export function TimerPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-          )}
         </div>
+        )}
       </div>
       <WeekStrip entries={blocks} start={rangeStart} end={rangeEnd} now={now} />
       <WeekGrid

@@ -25,7 +25,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCatalog } from '@/features/projects/use-catalog'
-import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
+import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
 import { splitsTotal, type SplitShare } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
@@ -412,20 +412,47 @@ function ConfirmDeleteDialog({
 }
 
 export function ProjectsPage() {
-  const { workspaceId, isAll, canManage } = useWorkspace()
+  const { workspaceId, isAll, canManage, canManageWorkspace, workspaces } = useWorkspace()
   const catalog = useCatalog()
   const qc = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [section, setSection] = useState<Section>('projects')
   const [draftKey, setDraftKey] = useState(0)
   const [clientKey, setClientKey] = useState(0)
+  const [createFor, setCreateFor] = useState<Section | null>(null)
+  const [pickedWorkspace, setPickedWorkspace] = useState('')
+  const [projectWorkspaceId, setProjectWorkspaceId] = useState<string | null>(null)
+  const [clientWorkspaceId, setClientWorkspaceId] = useState<string | null>(null)
+  const manageable = workspaces.filter((workspace) => canManageWorkspace(workspace.id))
+  const canCreate = isAll ? manageable.length > 0 : canManage
 
-  function needWorkspace() {
-    if (isAll || workspaceId === ALL_WORKSPACES) {
-      setError('Switch to a specific workspace to create records.')
-      return false
+  function openCreate(next: Section) {
+    if (!isAll) {
+      if (next === 'projects') {
+        setProjectWorkspaceId(workspaceId)
+        setDraftKey((n) => n + 1)
+      } else {
+        setClientWorkspaceId(workspaceId)
+        setClientKey((n) => n + 1)
+      }
+      setSection(next)
+      return
     }
-    return true
+    setPickedWorkspace(manageable[0]?.id ?? '')
+    setCreateFor(next)
+  }
+
+  function confirmCreate() {
+    if (!createFor || !pickedWorkspace) return
+    if (createFor === 'projects') {
+      setProjectWorkspaceId(pickedWorkspace)
+      setDraftKey((n) => n + 1)
+    } else {
+      setClientWorkspaceId(pickedWorkspace)
+      setClientKey((n) => n + 1)
+    }
+    setSection(createFor)
+    setCreateFor(null)
   }
 
   async function refresh() {
@@ -470,13 +497,13 @@ export function ProjectsPage() {
             </button>
           ))}
         </div>
-        {canManage && section === 'projects' ? (
-          <Button variant="outline" className="ml-auto" onClick={() => setDraftKey((n) => n + 1)}>
+        {canCreate && section === 'projects' ? (
+          <Button variant="outline" className="ml-auto" onClick={() => openCreate('projects')}>
             New project
           </Button>
         ) : null}
-        {canManage && section === 'clients' ? (
-          <Button variant="outline" className="ml-auto" onClick={() => setClientKey((n) => n + 1)}>
+        {canCreate && section === 'clients' ? (
+          <Button variant="outline" className="ml-auto" onClick={() => openCreate('clients')}>
             New client
           </Button>
         ) : null}
@@ -484,41 +511,77 @@ export function ProjectsPage() {
       {section === 'projects' ? (
         <ProjectEditor
           key={draftKey}
-          canManage={canManage}
+          canManageWorkspace={canManageWorkspace}
           catalog={catalog}
-          needWorkspace={needWorkspace}
+          catalogWorkspaceId={workspaceId}
+          createWorkspaceId={isAll ? projectWorkspaceId : workspaceId}
           onError={setError}
           onSaved={() => void refresh()}
-          workspaceId={workspaceId}
         />
       ) : null}
       {section === 'clients' ? (
         <ClientEditor
           key={clientKey}
-          canManage={canManage}
+          canManageWorkspace={canManageWorkspace}
           catalog={catalog}
-          needWorkspace={needWorkspace}
+          catalogWorkspaceId={workspaceId}
+          createWorkspaceId={isAll ? clientWorkspaceId : workspaceId}
           onError={setError}
           onSaved={() => void refresh()}
-          workspaceId={workspaceId}
         />
       ) : null}
+      <Dialog
+        open={createFor != null}
+        onOpenChange={(open) => {
+          if (!open) setCreateFor(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{createFor === 'clients' ? 'New client' : 'New project'}</DialogTitle>
+            <DialogDescription>Choose the workspace this belongs to.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="create-workspace">Workspace</Label>
+            <Select value={pickedWorkspace} onValueChange={setPickedWorkspace}>
+              <SelectTrigger id="create-workspace">
+                <SelectValue placeholder="Workspace" />
+              </SelectTrigger>
+              <SelectContent>
+                {manageable.map((workspace) => (
+                  <SelectItem key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCreateFor(null)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={!pickedWorkspace} onClick={confirmCreate}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 function ClientEditor({
   catalog,
-  canManage,
-  needWorkspace,
-  workspaceId,
+  canManageWorkspace,
+  createWorkspaceId,
+  catalogWorkspaceId,
   onError,
   onSaved,
 }: {
   catalog: ReturnType<typeof useCatalog>
-  canManage: boolean
-  needWorkspace: () => boolean
-  workspaceId: string
+  canManageWorkspace: (id: string) => boolean
+  createWorkspaceId: string | null
+  catalogWorkspaceId: string
   onError: (msg: string | null) => void
   onSaved: () => void
 }) {
@@ -561,6 +624,8 @@ function ClientEditor({
     }
   }
 
+  const activeWorkspaceId = editing?.workspace_id ?? createWorkspaceId ?? ''
+  const canManage = Boolean(activeWorkspaceId) && canManageWorkspace(activeWorkspaceId)
   const links = editing ? catalog.projectClients.filter((row) => row.client_id === editing.id) : []
   const clientActivities = editing ? catalog.activities.filter((row) => row.client_id === editing.id) : []
   const clientDirty =
@@ -571,8 +636,13 @@ function ClientEditor({
     )
 
   async function save() {
-    if (!needWorkspace() || !name.trim()) {
+    if (!name.trim()) {
       onError('Client needs a name.')
+      return
+    }
+    const targetWorkspaceId = editing?.workspace_id ?? createWorkspaceId
+    if (!targetWorkspaceId) {
+      toast({ tone: 'error', title: 'Could not save client', description: 'Choose a workspace.' })
       return
     }
     onError(null)
@@ -591,13 +661,13 @@ function ClientEditor({
       } else {
         const { data, error } = await supabase
           .from('clients')
-          .insert({ workspace_id: workspaceId, name: name.trim(), default_billable: billable })
+          .insert({ workspace_id: targetWorkspaceId, name: name.trim(), default_billable: billable })
           .select('*')
           .single()
         if (error) throw error
         saved = data as Client
       }
-      qc.setQueryData(qk.clients(workspaceId), (current: Client[] | undefined) => {
+      qc.setQueryData(qk.clients(catalogWorkspaceId), (current: Client[] | undefined) => {
         const list = current ?? []
         const index = list.findIndex((item) => item.id === saved.id)
         if (index >= 0) {
@@ -628,9 +698,9 @@ function ClientEditor({
   }
 
   async function addActivity() {
-    if (!needWorkspace() || !editing || !activityName.trim() || !activityProjectId) return
+    if (!editing || !activityName.trim() || !activityProjectId) return
     const { error } = await supabase.from('activities').insert({
-      workspace_id: workspaceId,
+      workspace_id: editing.workspace_id,
       project_id: activityProjectId,
       client_id: editing.id,
       name: activityName.trim(),
@@ -794,8 +864,8 @@ function ClientEditor({
         />
         <ActivityMoveDialog
           activity={moving}
-          projects={catalog.allProjects}
-          clients={catalog.clients}
+          projects={catalog.allProjects.filter((project) => project.workspace_id === moving?.workspace_id)}
+          clients={catalog.clients.filter((client) => client.workspace_id === moving?.workspace_id)}
           open={Boolean(moving)}
           onOpenChange={(open) => {
             if (!open) setMoving(null)
@@ -822,16 +892,16 @@ function ClientEditor({
 
 function ProjectEditor({
   catalog,
-  canManage,
-  needWorkspace,
-  workspaceId,
+  canManageWorkspace,
+  createWorkspaceId,
+  catalogWorkspaceId,
   onError,
   onSaved,
 }: {
   catalog: ReturnType<typeof useCatalog>
-  canManage: boolean
-  needWorkspace: () => boolean
-  workspaceId: string
+  canManageWorkspace: (id: string) => boolean
+  createWorkspaceId: string | null
+  catalogWorkspaceId: string
   onError: (msg: string | null) => void
   onSaved: () => void
 }) {
@@ -914,6 +984,9 @@ function ProjectEditor({
     })
   }
 
+  const activeWorkspaceId = editing?.workspace_id ?? createWorkspaceId ?? ''
+  const canManage = Boolean(activeWorkspaceId) && canManageWorkspace(activeWorkspaceId)
+  const workspaceClients = catalog.clients.filter((client) => client.workspace_id === activeWorkspaceId)
   const clientActivityGroups = (() => {
     if (!editing) return []
     const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' })
@@ -961,8 +1034,9 @@ function ProjectEditor({
   }
 
   async function save() {
-    if (!needWorkspace()) {
-      const msg = 'Switch to a specific workspace to create records.'
+    const targetWorkspaceId = editing?.workspace_id ?? createWorkspaceId
+    if (!targetWorkspaceId) {
+      const msg = 'Choose a workspace.'
       setSaveHint(msg)
       toast({ tone: 'error', title: 'Could not save project', description: msg })
       return
@@ -993,13 +1067,13 @@ function ProjectEditor({
       } else {
         const { data, error } = await supabase
           .from('projects')
-          .insert({ workspace_id: workspaceId, ...payload })
+          .insert({ workspace_id: targetWorkspaceId, ...payload })
           .select('*')
           .single()
         if (error) throw error
         saved = data as Project
       }
-      qc.setQueryData(qk.projects(workspaceId), (current: Project[] | undefined) => {
+      qc.setQueryData(qk.projects(catalogWorkspaceId), (current: Project[] | undefined) => {
         const list = current ?? []
         const index = list.findIndex((item) => item.id === saved.id)
         if (index >= 0) {
@@ -1014,7 +1088,7 @@ function ProjectEditor({
         p_splits: splits.map((row) => ({ client_id: row.clientId, split_percent: row.percent })),
       })
       if (splitErr) throw splitErr
-      qc.setQueryData(qk.projectClients(workspaceId), (current: ProjectClient[] | undefined) => {
+      qc.setQueryData(qk.projectClients(catalogWorkspaceId), (current: ProjectClient[] | undefined) => {
         const rest = (current ?? []).filter((row) => row.project_id !== saved.id)
         return [...rest, ...((links ?? []) as ProjectClient[])]
       })
@@ -1045,14 +1119,14 @@ function ProjectEditor({
         }
         const { data, error } = await supabase
           .from('activities')
-          .insert({ workspace_id: workspaceId, project_id: saved.id, client_id: null, name: item })
+          .insert({ workspace_id: saved.workspace_id, project_id: saved.id, client_id: null, name: item })
           .select('*')
           .single()
         if (error) {
           draftError = failMessage(error)
           leftoverActivities.push(item)
         } else if (data) {
-          qc.setQueryData(qk.activities(workspaceId), (current: Activity[] | undefined) => [...(current ?? []), data as Activity])
+          qc.setQueryData(qk.activities(catalogWorkspaceId), (current: Activity[] | undefined) => [...(current ?? []), data as Activity])
         }
       }
       const leftoverAliases: string[] = []
@@ -1063,14 +1137,14 @@ function ProjectEditor({
         }
         const { data, error } = await supabase
           .from('project_aliases')
-          .insert({ workspace_id: workspaceId, project_id: saved.id, shortcut: item })
+          .insert({ workspace_id: saved.workspace_id, project_id: saved.id, shortcut: item })
           .select('*')
           .single()
         if (error) {
           draftError = failMessage(error)
           leftoverAliases.push(item)
         } else if (data) {
-          qc.setQueryData(qk.aliases(workspaceId), (current: ProjectAlias[] | undefined) => [
+          qc.setQueryData(qk.aliases(catalogWorkspaceId), (current: ProjectAlias[] | undefined) => [
             ...(current ?? []),
             data as ProjectAlias,
           ])
@@ -1097,18 +1171,18 @@ function ProjectEditor({
       if (error) throw error
       const removedId = editing.id
       const removedName = editing.name
-      qc.setQueryData(qk.projects(workspaceId), (current: Project[] | undefined) =>
+      qc.setQueryData(qk.projects(catalogWorkspaceId), (current: Project[] | undefined) =>
         (current ?? []).filter((item) => item.id !== removedId),
       )
       setConfirmOpen(false)
       setConfirmName('')
       load()
       await Promise.all([
-        qc.invalidateQueries({ queryKey: qk.entries(workspaceId) }),
-        qc.invalidateQueries({ queryKey: qk.requests(workspaceId) }),
-        qc.invalidateQueries({ queryKey: qk.activities(workspaceId) }),
-        qc.invalidateQueries({ queryKey: qk.aliases(workspaceId) }),
-        qc.invalidateQueries({ queryKey: qk.projectClients(workspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.entries(catalogWorkspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.requests(catalogWorkspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.activities(catalogWorkspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.aliases(catalogWorkspaceId) }),
+        qc.invalidateQueries({ queryKey: qk.projectClients(catalogWorkspaceId) }),
         qc.invalidateQueries({ queryKey: qk.running }),
       ])
       toast({ tone: 'success', title: 'Project deleted', description: removedName })
@@ -1193,9 +1267,8 @@ function ProjectEditor({
                   setShortcut('')
                   return
                 }
-                if (!needWorkspace()) return
                 const { error } = await supabase.from('project_aliases').insert({
-                  workspace_id: workspaceId,
+                  workspace_id: editing.workspace_id,
                   project_id: editing.id,
                   shortcut: value,
                 })
@@ -1376,7 +1449,7 @@ function ProjectEditor({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {catalog.clients.map((client) => (
+                  {workspaceClients.map((client) => (
                     <SelectItem key={client.id} value={client.id}>
                       {client.name}
                     </SelectItem>
@@ -1417,7 +1490,7 @@ function ProjectEditor({
               variant="outline"
               size="sm"
               onClick={() => {
-                const next = catalog.clients.find((client) => !splits.some((row) => row.clientId === client.id))
+                const next = workspaceClients.find((client) => !splits.some((row) => row.clientId === client.id))
                 if (!next) return
                 setSplits((rows) => [
                   ...rows,
@@ -1444,9 +1517,8 @@ function ProjectEditor({
                   setActivityName('')
                   return
                 }
-                if (!needWorkspace()) return
                 const { error } = await supabase.from('activities').insert({
-                  workspace_id: workspaceId,
+                  workspace_id: editing.workspace_id,
                   project_id: editing.id,
                   client_id: null,
                   name: value,
@@ -1559,8 +1631,8 @@ function ProjectEditor({
         />
         <ActivityMoveDialog
           activity={moving}
-          projects={catalog.allProjects}
-          clients={catalog.clients}
+          projects={catalog.allProjects.filter((project) => project.workspace_id === moving?.workspace_id)}
+          clients={catalog.clients.filter((client) => client.workspace_id === moving?.workspace_id)}
           open={Boolean(moving)}
           onOpenChange={(open) => {
             if (!open) setMoving(null)

@@ -7,14 +7,13 @@ import {
   DotsThree,
   Folder,
   Gear,
-  CheckSquare,
   List,
   Moon,
   SignOut,
   Sun,
   User,
 } from '@phosphor-icons/react'
-import { InboxIcon } from '@heroicons/react/24/outline'
+import { InboxIcon, ListBulletIcon } from '@heroicons/react/24/outline'
 import { useTheme } from 'next-themes'
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
@@ -44,7 +43,7 @@ const nav = [
   { to: '/timer', label: 'Timer', icon: Clock },
   { to: '/reports', label: 'Report', icon: ChartBar },
   { to: '/requests', label: 'Requests', icon: InboxIcon },
-  { to: '/tasks', label: 'Tasks', icon: CheckSquare },
+  { to: '/tasks', label: 'Tasks', icon: ListBulletIcon },
   { to: '/projects', label: 'Projects', icon: Folder },
   { to: '/settings', label: 'Settings', icon: Gear },
 ]
@@ -203,7 +202,11 @@ export function AppShell() {
   const pathname = useLocation().pathname
   const timerRoute = pathname === '/timer'
   const fillRoute =
-    pathname === '/projects' || pathname === '/requests' || pathname === '/tasks' || pathname === '/settings'
+    pathname === '/projects' ||
+    pathname === '/requests' ||
+    pathname === '/tasks' ||
+    pathname === '/settings' ||
+    pathname === '/reports'
   const [bannerSpace, setBannerSpace] = useState(false)
   const pagePad = bannerSpace ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/reports'
   const [open, setOpen] = useState(false)

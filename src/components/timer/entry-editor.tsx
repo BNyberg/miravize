@@ -32,7 +32,7 @@ import { taskCode } from '@/lib/task-code'
 import { formatDuration } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-import type { Activity, Client, Project, ProjectClient, TimeEntry } from '@/types'
+import type { Activity, Client, Project, ProjectClient, TaskStatus, TimeEntry } from '@/types'
 
 type Point = { x: number; y: number }
 
@@ -193,15 +193,15 @@ function EntryMetaChips({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('tasks')
-        .select('id, task_number, task')
+        .select('id, task_number, task, status')
         .eq('workspace_id', scopeWorkspaceId)
         .order('logged_on', { ascending: false })
         .order('task_number', { ascending: false })
       if (error) throw error
-      return (data ?? []) as { id: string; task_number: number; task: string }[]
+      return (data ?? []) as { id: string; task_number: number; task: string; status: TaskStatus }[]
     },
   })
-  const taskRows = workspaceTasks.data ?? []
+  const taskRows = (workspaceTasks.data ?? []).filter((row) => row.status !== 'done')
 
   function requestIdLabel(row: { task_number: number }) {
     return requestCode(row.task_number)
@@ -216,7 +216,12 @@ function EntryMetaChips({
     .filter((row): row is { id: string; task_number: number; request: string } => Boolean(row))
   const linkedTasks = taskIds
     .map((id) => taskRows.find((row) => row.id === id))
-    .filter((row): row is { id: string; task_number: number; task: string } => Boolean(row))
+    .filter((row): row is { id: string; task_number: number; task: string; status: TaskStatus } => Boolean(row))
+
+  function taskMenuLabel(row: { task_number: number; status: TaskStatus; task: string }) {
+    const status = row.status === 'doing' ? 'Doing' : 'Todo'
+    return `${taskCode(row.task_number)} · ${status} · ${row.task}`
+  }
 
   function applyProject(nextProjectId: string) {
     const nextProject = projects.find((item) => item.id === nextProjectId)
@@ -447,14 +452,17 @@ function EntryMetaChips({
                   className="min-w-0"
                   onSelect={(event) => {
                     event.preventDefault()
-                    const nextTasks = checked ? taskIds.filter((id) => id !== item.id) : [...taskIds, item.id]
+                    const kept = taskIds.filter((id) => !taskRows.some((row) => row.id === id))
+                    const visible = taskIds.filter((id) => taskRows.some((row) => row.id === id))
+                    const nextVisible = checked ? visible.filter((id) => id !== item.id) : [...visible, item.id]
+                    const nextTasks = [...kept, ...nextVisible]
                     onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds, taskIds: nextTasks, description, billable })
                   }}
                 >
                   <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
                     {checked ? '✓' : '○'}
                   </span>
-                  <span className="min-w-0 truncate">{taskCode(item.task_number)} · {item.task}</span>
+                  <span className="min-w-0 truncate">{taskMenuLabel(item)}</span>
                 </DropdownMenuItem>
               )
             })

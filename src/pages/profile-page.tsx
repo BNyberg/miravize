@@ -1,4 +1,4 @@
-import { BanknotesIcon, BuildingOffice2Icon, CheckIcon, ClockIcon, InboxIcon } from '@heroicons/react/24/outline'
+import { BanknotesIcon, BuildingOffice2Icon, ClockIcon, InboxIcon, ListBulletIcon } from '@heroicons/react/24/outline'
 import { Desktop, Moon, Sun } from '@phosphor-icons/react'
 import { useQuery } from '@tanstack/react-query'
 import { useTheme } from 'next-themes'
@@ -137,7 +137,7 @@ export function ProfilePage() {
           </span>
           <span aria-hidden="true">|</span>
           <span className="inline-flex items-center gap-1.5">
-            <CheckIcon className="size-4" aria-hidden="true" />
+            <ListBulletIcon className="size-4" aria-hidden="true" />
             {stats.data?.tasks ?? 0} completed tasks
           </span>
         </p>

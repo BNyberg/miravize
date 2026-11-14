@@ -8,6 +8,10 @@ const ALL = 'all'
 const STORAGE_KEY = 'miravize-workspace-id'
 const LEGACY_STORAGE_KEY = 'genki-workspace-id'
 
+function manages(role: Membership['role'] | undefined) {
+  return role === 'owner' || role === 'admin'
+}
+
 type WorkspaceContextValue = {
   workspaceId: string
   setWorkspaceId: (id: string) => void
@@ -16,6 +20,7 @@ type WorkspaceContextValue = {
   current: Membership | null
   workspaces: Workspace[]
   canManage: boolean
+  canManageWorkspace: (id: string) => boolean
   loading: boolean
 }
 
@@ -61,7 +66,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       memberships: data,
       current,
       workspaces: data.map((m) => m.workspace),
-      canManage: current?.role === 'owner' || current?.role === 'admin',
+      canManage: manages(current?.role),
+      canManageWorkspace: (id: string) => manages(data.find((membership) => membership.workspace_id === id)?.role),
       loading: isLoading,
     }
   }, [data, isLoading, workspaceId])
