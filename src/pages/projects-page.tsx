@@ -81,6 +81,19 @@ async function deleteActivity(id: string, onSaved: () => void) {
   onSaved()
 }
 
+async function setActivityDefault(activity: Activity, onSaved: () => void) {
+  const { error } = await supabase.from('activities').update({ is_default: !activity.is_default }).eq('id', activity.id)
+  if (error) {
+    toast({
+      tone: 'error',
+      title: activity.is_default ? 'Could not clear default' : 'Could not set default',
+      description: failMessage(error),
+    })
+  } else {
+    onSaved()
+  }
+}
+
 async function renameActivity(id: string, name: string, onSaved: () => void) {
   const { error } = await supabase.from('activities').update({ name }).eq('id', id)
   if (error) {
@@ -113,7 +126,17 @@ function RemoveActivityButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-function ActivityRowMenu({ onRename, onMove }: { onRename: () => void; onMove?: () => void }) {
+function ActivityRowMenu({
+  onRename,
+  onMove,
+  onToggleDefault,
+  isDefault,
+}: {
+  onRename: () => void
+  onMove?: () => void
+  onToggleDefault?: () => void
+  isDefault?: boolean
+}) {
   return (
     <div className="ml-auto flex shrink-0 items-center">
       <DropdownMenu>
@@ -125,6 +148,9 @@ function ActivityRowMenu({ onRename, onMove }: { onRename: () => void; onMove?: 
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={onRename}>Rename</DropdownMenuItem>
           {onMove ? <DropdownMenuItem onSelect={onMove}>Move</DropdownMenuItem> : null}
+          {onToggleDefault ? (
+            <DropdownMenuItem onSelect={onToggleDefault}>{isDefault ? 'Clear default' : 'Set as default'}</DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -1555,11 +1581,14 @@ function ProjectEditor({
                     .map((activity) => (
                       <li key={activity.id} className="flex items-center gap-2 py-1.5 text-sm">
                         <span className="min-w-0 flex-1 truncate">{activity.name}</span>
+                        {activity.is_default ? <Badge variant="secondary">Default</Badge> : null}
                         {canManage ? (
                           <>
                             <ActivityRowMenu
+                              isDefault={activity.is_default}
                               onRename={() => setRenaming(activity)}
                               onMove={() => setMoving(activity)}
+                              onToggleDefault={() => void setActivityDefault(activity, onSaved)}
                             />
                             <RemoveActivityButton onClick={() => setPendingActivity({ id: activity.id, name: activity.name })} />
                           </>

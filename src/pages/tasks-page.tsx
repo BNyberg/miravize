@@ -1,7 +1,7 @@
 import { ChevronDownIcon } from '@heroicons/react/24/outline'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { endOfMonth, format, startOfMonth } from 'date-fns'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { TaskComposer } from '@/components/tasks/task-composer'
 import { TaskLedgerRow, type TaskPatch } from '@/components/tasks/task-row'
@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useAuth } from '@/features/auth/auth-context'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
@@ -22,6 +23,7 @@ import type { Task, TaskStatus } from '@/types'
 import { qk } from '@/lib/query-keys'
 import { startTimer, stopTimer } from '@/lib/timer'
 import { supabase } from '@/lib/supabase'
+import { readTasksIncludeDoneStored, readUserPreferences } from '@/lib/user-preferences'
 import { toast } from '@/components/ui/toast'
 
 
@@ -30,6 +32,10 @@ const STATUSES: TaskStatus[] = ['todo', 'doing', 'done']
 const STATUS_LABEL: Record<TaskStatus, string> = { todo: 'Todo', doing: 'Doing', done: 'Done' }
 function statusLabel(value: TaskStatus) {
   return STATUS_LABEL[value]
+}
+
+function defaultStatuses(includeDone: boolean): TaskStatus[] {
+  return includeDone ? [...STATUSES] : STATUSES.filter((status) => status !== 'done')
 }
 
 function statusFilterLabel(selected: TaskStatus[]) {
@@ -86,6 +92,7 @@ function Filter({
 }
 
 export function TasksPage() {
+  const { user } = useAuth()
   const { workspaceId, isAll, workspaces } = useWorkspace()
   const catalog = useCatalog()
   const qc = useQueryClient()
@@ -100,7 +107,15 @@ export function TasksPage() {
   const [projectId, setProjectId] = useState('')
   const [clientId, setClientId] = useState('')
   const [activityId, setActivityId] = useState('')
-  const [statuses, setStatuses] = useState<TaskStatus[]>(STATUSES)
+  const [statuses, setStatuses] = useState<TaskStatus[]>(() => defaultStatuses(readTasksIncludeDoneStored() ?? false))
+  const seededIncludeDone = useRef(readTasksIncludeDoneStored() != null)
+
+  useEffect(() => {
+    if (seededIncludeDone.current || !user) return
+    seededIncludeDone.current = true
+    if (readTasksIncludeDoneStored() != null) return
+    setStatuses(defaultStatuses(readUserPreferences(user).tasks_include_done))
+  }, [user])
   const [requester, setRequester] = useState('')
   const [task, setTask] = useState('')
   const list = useQuery({

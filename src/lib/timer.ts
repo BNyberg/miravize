@@ -3,6 +3,19 @@ import { supabase } from '@/lib/supabase'
 export const ENTRY_SELECT =
   '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_tags(tag_id, tags(*)), time_entry_requests(request_id), time_entry_tasks(task_id)'
 
+async function resolveActivityId(projectId: string | null, activityId: string | null | undefined) {
+  if (activityId) return activityId
+  if (!projectId) return null
+  const { data, error } = await supabase
+    .from('activities')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('is_default', true)
+    .maybeSingle()
+  if (error) throw error
+  return (data?.id as string | undefined) ?? null
+}
+
 export async function startTimer(input: {
   workspaceId: string
   projectId: string | null
@@ -25,7 +38,8 @@ export async function startTimer(input: {
   })
   if (error) throw error
   const entry = data as { id: string }
-  await applyEntryExtras(entry.id, input.workspaceId, input.activityId ?? null, input.clientIds ?? [])
+  const activityId = await resolveActivityId(input.projectId, input.activityId)
+  await applyEntryExtras(entry.id, input.workspaceId, activityId, input.clientIds ?? [])
   if (input.requestIds) await replaceEntryRequests(entry.id, input.workspaceId, input.requestIds)
   if (input.taskIds) await replaceEntryTasks(entry.id, input.workspaceId, input.taskIds)
   return data
@@ -127,13 +141,14 @@ export async function createEntry(input: {
   taskIds?: string[]
 }) {
   const userId = await currentUserId()
+  const activityId = await resolveActivityId(input.projectId, input.activityId)
   const { data, error } = await supabase
     .from('time_entries')
     .insert({
       workspace_id: input.workspaceId,
       user_id: userId,
       project_id: input.projectId,
-      activity_id: input.activityId ?? null,
+      activity_id: activityId,
       description: input.description,
       billable: input.billable,
       source: 'manual',

@@ -1,15 +1,19 @@
+import { ChevronDownIcon } from '@heroicons/react/24/outline'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { endOfMonth, format, startOfMonth } from 'date-fns'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { RequestComposer } from '@/components/requests/request-composer'
 import { RequestLedgerRow, type RequestPatch } from '@/components/requests/request-row'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useAuth } from '@/features/auth/auth-context'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
@@ -18,8 +22,25 @@ import { requestCode } from '@/lib/request-code'
 import { qk } from '@/lib/query-keys'
 import { startTimer, stopTimer } from '@/lib/timer'
 import { supabase } from '@/lib/supabase'
+import { readRequestsIncludeDoneStored, readUserPreferences } from '@/lib/user-preferences'
 import { toast } from '@/components/ui/toast'
-import type { SupportRequest } from '@/types'
+import type { SupportRequest, TaskStatus } from '@/types'
+
+const STATUSES: TaskStatus[] = ['todo', 'doing', 'done']
+const STATUS_LABEL: Record<TaskStatus, string> = { todo: 'Todo', doing: 'Doing', done: 'Done' }
+function statusLabel(value: TaskStatus) {
+  return STATUS_LABEL[value]
+}
+
+function defaultStatuses(includeDone: boolean): TaskStatus[] {
+  return includeDone ? [...STATUSES] : STATUSES.filter((status) => status !== 'done')
+}
+
+function statusFilterLabel(selected: TaskStatus[]) {
+  if (selected.length === STATUSES.length) return 'All statuses'
+  if (selected.length === 0) return 'None'
+  return STATUSES.filter((status) => selected.includes(status)).map(statusLabel).join(', ')
+}
 
 const ALL = 'all'
 const NO_CLIENT = '__none__'
@@ -69,6 +90,7 @@ function Filter({
 }
 
 export function RequestsPage() {
+  const { user } = useAuth()
   const { workspaceId, isAll, workspaces } = useWorkspace()
   const catalog = useCatalog()
   const qc = useQueryClient()
@@ -83,6 +105,15 @@ export function RequestsPage() {
   const [projectId, setProjectId] = useState('')
   const [clientId, setClientId] = useState('')
   const [activityId, setActivityId] = useState('')
+  const [statuses, setStatuses] = useState<TaskStatus[]>(() => defaultStatuses(readRequestsIncludeDoneStored() ?? false))
+  const seededIncludeDone = useRef(readRequestsIncludeDoneStored() != null)
+
+  useEffect(() => {
+    if (seededIncludeDone.current || !user) return
+    seededIncludeDone.current = true
+    if (readRequestsIncludeDoneStored() != null) return
+    setStatuses(defaultStatuses(readUserPreferences(user).requests_include_done))
+  }, [user])
   const [requester, setRequester] = useState('')
   const [request, setRequest] = useState('')
   const list = useQuery({
@@ -109,6 +140,7 @@ export function RequestsPage() {
         if (query && !requestCode(row.task_number).toLowerCase().includes(query)) return false
         if (projectId && (row.project_id ?? NO_PROJECT) !== projectId) return false
         if (activityId && (row.activity_id ?? NO_ACTIVITY) !== activityId) return false
+        if (!statuses.includes(row.status)) return false
         const clients = displayClientIds(row, catalog)
         if (!clientId) return true
         if (clientId === NO_CLIENT) return clients.length === 0
@@ -119,7 +151,7 @@ export function RequestsPage() {
         if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1
         return b.task_number - a.task_number || (a.id < b.id ? 1 : -1)
       })
-  }, [activityId, catalog, clientId, list.data, projectId, taskId])
+  }, [activityId, catalog, clientId, list.data, projectId, statuses, taskId])
 
   const save = useMutation({
     mutationFn: async (input: {
@@ -187,6 +219,17 @@ export function RequestsPage() {
             source: 'quick_start',
             requestIds: [created.id],
           })
+          const { error: statusErr } = await supabase.rpc('update_support_request', {
+            p_id: created.id,
+            p_requester: nextRequester,
+            p_request: nextRequest,
+            p_status: 'doing',
+            p_project_id: input.assignment.projectId || null,
+            p_activity_id: input.assignment.activityId || null,
+            p_client_ids: input.assignment.clientIds,
+            p_additional_notes: input.notes || null,
+          })
+          if (statusErr) throw statusErr
         } catch (trackErr) {
           void qc.invalidateQueries({ queryKey: ['requests'] })
           const message = trackErr instanceof Error ? trackErr.message : 'Tracking did not start.'
@@ -212,6 +255,7 @@ export function RequestsPage() {
         p_id: input.id,
         p_requester: input.requester,
         p_request: input.request,
+        p_status: input.status,
         p_project_id: input.projectId || null,
         p_activity_id: input.activityId || null,
         p_client_ids: input.clientIds,
@@ -241,10 +285,22 @@ export function RequestsPage() {
         source: 'quick_start',
         requestIds: [row.id],
       })
+      const { error: statusErr } = await supabase.rpc('update_support_request', {
+        p_id: row.id,
+        p_requester: row.requester,
+        p_request: row.request,
+        p_status: 'doing',
+        p_project_id: row.project_id,
+        p_activity_id: row.activity_id,
+        p_client_ids: row.request_clients?.map((link) => link.client_id) ?? [],
+        p_additional_notes: row.additional_notes,
+      })
+      if (statusErr) throw statusErr
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.running })
       void qc.invalidateQueries({ queryKey: ['entries'] })
+      void qc.invalidateQueries({ queryKey: ['requests'] })
     },
     onError: (err: Error) => toast({ tone: 'error', title: 'Could not start tracking', description: err.message }),
   })
@@ -278,8 +334,8 @@ export function RequestsPage() {
 
   function exportCsv() {
     const header = isAll
-      ? ['Task ID', 'Workspace', 'Date', 'Requester', 'Request', 'Project', 'Activity', 'Client', 'Notes']
-      : ['Task ID', 'Date', 'Requester', 'Request', 'Project', 'Activity', 'Client', 'Notes']
+      ? ['Task ID', 'Workspace', 'Date', 'Requester', 'Request', 'Status', 'Project', 'Activity', 'Client', 'Notes']
+      : ['Task ID', 'Date', 'Requester', 'Request', 'Status', 'Project', 'Activity', 'Client', 'Notes']
     const cell = (value: string) => `"${value.replaceAll('"', '""')}"`
     const lines = [
       header.join(','),
@@ -294,6 +350,7 @@ export function RequestsPage() {
           row.logged_on,
           row.requester,
           row.request,
+          statusLabel(row.status),
           row.project?.name ?? '',
           row.activity?.name ?? '',
           clients,
@@ -402,6 +459,38 @@ export function RequestsPage() {
             </SelectContent>
           </Select>
         </Filter>
+        <Filter label="Status">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Status"
+                className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background py-1 pl-3 pr-2.5 text-left text-sm transition-colors duration-75 hover:bg-muted data-[state=open]:bg-muted"
+              >
+                <span className="min-w-0 flex-1 truncate">{statusFilterLabel(statuses)}</span>
+                <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-1">
+              {STATUSES.map((value) => {
+                const checked = statuses.includes(value)
+                return (
+                  <label key={value} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted">
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(next) =>
+                        setStatuses((current) =>
+                          next === true ? [...current, value] : current.filter((status) => status !== value),
+                        )
+                      }
+                    />
+                    {statusLabel(value)}
+                  </label>
+                )
+              })}
+            </PopoverContent>
+          </Popover>
+        </Filter>
         <div className="ml-auto">
           <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
             Export CSV
@@ -417,6 +506,7 @@ export function RequestsPage() {
               <TableHead className="whitespace-nowrap">Date</TableHead>
               <TableHead className="w-32 min-w-32">Requester</TableHead>
               <TableHead className="min-w-[28rem]">Request</TableHead>
+              <TableHead className="min-w-[8rem]">Status</TableHead>
               <TableHead className="min-w-[12rem]">Project</TableHead>
               <TableHead className="min-w-[12rem]">Activity</TableHead>
               <TableHead className="min-w-[12rem]">Client</TableHead>

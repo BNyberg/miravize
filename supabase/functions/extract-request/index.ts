@@ -25,6 +25,11 @@ Deno.serve(async (req) => {
     })
     const { data: userData, error: userErr } = await userClient.auth.getUser()
     if (userErr || !userData.user) throw new Error('Not authenticated')
+    const { data: assurance, error: assuranceErr } = await userClient.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (assuranceErr) throw new Error(assuranceErr.message)
+    if (assurance?.nextLevel === 'aal2' && assurance.currentLevel !== 'aal2') {
+      return json({ error: 'Two-factor authentication is required.' }, 403)
+    }
 
     const body = (await req.json()) as Body
     const images = (body.images ?? []).filter((image) => image.data)

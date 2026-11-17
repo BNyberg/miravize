@@ -19,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Label } from '@/components/ui/label'
@@ -178,15 +179,17 @@ function EntryMetaChips({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('requests')
-        .select('id, task_number, request')
+        .select('id, task_number, request, status')
         .eq('workspace_id', scopeWorkspaceId)
         .order('logged_on', { ascending: false })
         .order('task_number', { ascending: false })
       if (error) throw error
-      return (data ?? []) as { id: string; task_number: number; request: string }[]
+      return (data ?? []) as { id: string; task_number: number; request: string; status: TaskStatus }[]
     },
   })
   const requestRows = workspaceRequests.data ?? []
+  const openRequestRows = requestRows.filter((row) => row.status !== 'done')
+  const doneRequestRows = requestRows.filter((row) => row.status === 'done')
   const workspaceTasks = useQuery({
     queryKey: qk.tasks(`${scopeWorkspaceId}-picker`),
     enabled: Boolean(scopeWorkspaceId),
@@ -201,26 +204,34 @@ function EntryMetaChips({
       return (data ?? []) as { id: string; task_number: number; task: string; status: TaskStatus }[]
     },
   })
-  const taskRows = (workspaceTasks.data ?? []).filter((row) => row.status !== 'done')
+  const taskRows = workspaceTasks.data ?? []
+  const openTaskRows = taskRows.filter((row) => row.status !== 'done')
+  const doneTaskRows = taskRows.filter((row) => row.status === 'done')
 
   function requestIdLabel(row: { task_number: number }) {
     return requestCode(row.task_number)
   }
 
-  function requestLabel(row: { task_number: number; request: string }) {
-    return `${requestIdLabel(row)} · ${row.request}`
+  function requestMenuLabel(row: { task_number: number; status: TaskStatus; request: string }) {
+    const status = row.status === 'doing' ? 'Doing' : row.status === 'done' ? 'Done' : 'Todo'
+    return `${requestIdLabel(row)} · ${status} · ${row.request}`
   }
 
   const linkedRequests = requestIds
     .map((id) => requestRows.find((row) => row.id === id))
-    .filter((row): row is { id: string; task_number: number; request: string } => Boolean(row))
+    .filter((row): row is { id: string; task_number: number; request: string; status: TaskStatus } => Boolean(row))
   const linkedTasks = taskIds
     .map((id) => taskRows.find((row) => row.id === id))
     .filter((row): row is { id: string; task_number: number; task: string; status: TaskStatus } => Boolean(row))
 
   function taskMenuLabel(row: { task_number: number; status: TaskStatus; task: string }) {
-    const status = row.status === 'doing' ? 'Doing' : 'Todo'
+    const status = row.status === 'doing' ? 'Doing' : row.status === 'done' ? 'Done' : 'Todo'
     return `${taskCode(row.task_number)} · ${status} · ${row.task}`
+  }
+
+  function toggleTask(taskId: string, checked: boolean) {
+    const nextTasks = checked ? taskIds.filter((id) => id !== taskId) : [...taskIds, taskId]
+    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds, taskIds: nextTasks, description, billable })
   }
 
   function applyProject(nextProjectId: string) {
@@ -228,12 +239,15 @@ function EntryMetaChips({
     const nextLinks = projectClients.filter((row) => row.project_id === nextProjectId)
     const nextMode = clientMode(nextLinks)
     const keptActivity = activities.find((row) => row.id === activityId && row.project_id === nextProjectId)
+    const defaultActivity = activities.find(
+      (row) => row.project_id === nextProjectId && row.client_id == null && row.is_default,
+    )
     const allowed = new Set(nextLinks.map((row) => row.client_id))
     onChange({
       workspaceId: nextProject?.workspace_id ?? workspaceId,
       projectId: nextProjectId,
       billable: nextProject?.billable ?? billable,
-      activityId: keptActivity?.id ?? '',
+      activityId: keptActivity?.id ?? defaultActivity?.id ?? '',
       clientIds: nextMode === 'manual' ? clientIds.filter((id) => allowed.has(id)) : [],
       requestIds,
   taskIds,
@@ -389,25 +403,51 @@ function EntryMetaChips({
           {requestRows.length === 0 ? (
             <DropdownMenuItem disabled>No requests</DropdownMenuItem>
           ) : (
-            requestRows.map((item) => {
-              const checked = requestIds.includes(item.id)
-              return (
-                <DropdownMenuItem
-                  key={item.id}
-                  className="min-w-0"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    const nextRequests = checked ? requestIds.filter((id) => id !== item.id) : [...requestIds, item.id]
-                    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds: nextRequests, taskIds, description, billable })
-                  }}
-                >
-                  <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
-                    {checked ? '✓' : '○'}
-                  </span>
-                  <span className="min-w-0 truncate">{requestLabel(item)}</span>
-                </DropdownMenuItem>
-              )
-            })
+            <>
+              {openRequestRows.map((item) => {
+                const checked = requestIds.includes(item.id)
+                return (
+                  <DropdownMenuItem
+                    key={item.id}
+                    className="min-w-0"
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      const nextRequests = checked ? requestIds.filter((id) => id !== item.id) : [...requestIds, item.id]
+                      onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds: nextRequests, taskIds, description, billable })
+                    }}
+                  >
+                    <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
+                      {checked ? '✓' : '○'}
+                    </span>
+                    <span className="min-w-0 truncate">{requestMenuLabel(item)}</span>
+                  </DropdownMenuItem>
+                )
+              })}
+              {doneRequestRows.length > 0 ? (
+                <>
+                  {openRequestRows.length > 0 ? <DropdownMenuSeparator /> : null}
+                  {doneRequestRows.map((item) => {
+                    const checked = requestIds.includes(item.id)
+                    return (
+                      <DropdownMenuItem
+                        key={item.id}
+                        className="min-w-0 text-muted-foreground line-through"
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          const nextRequests = checked ? requestIds.filter((id) => id !== item.id) : [...requestIds, item.id]
+                          onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds: nextRequests, taskIds, description, billable })
+                        }}
+                      >
+                        <span className={cn('mr-2 shrink-0 font-mono text-xs no-underline', checked ? 'opacity-100' : 'opacity-30')}>
+                          {checked ? '✓' : '○'}
+                        </span>
+                        <span className="min-w-0 truncate">{requestMenuLabel(item)}</span>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </>
+              ) : null}
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -444,28 +484,49 @@ function EntryMetaChips({
           {taskRows.length === 0 ? (
             <DropdownMenuItem disabled>No tasks</DropdownMenuItem>
           ) : (
-            taskRows.map((item) => {
-              const checked = taskIds.includes(item.id)
-              return (
-                <DropdownMenuItem
-                  key={item.id}
-                  className="min-w-0"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    const kept = taskIds.filter((id) => !taskRows.some((row) => row.id === id))
-                    const visible = taskIds.filter((id) => taskRows.some((row) => row.id === id))
-                    const nextVisible = checked ? visible.filter((id) => id !== item.id) : [...visible, item.id]
-                    const nextTasks = [...kept, ...nextVisible]
-                    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds, taskIds: nextTasks, description, billable })
-                  }}
-                >
-                  <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
-                    {checked ? '✓' : '○'}
-                  </span>
-                  <span className="min-w-0 truncate">{taskMenuLabel(item)}</span>
-                </DropdownMenuItem>
-              )
-            })
+            <>
+              {openTaskRows.map((item) => {
+                const checked = taskIds.includes(item.id)
+                return (
+                  <DropdownMenuItem
+                    key={item.id}
+                    className="min-w-0"
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      toggleTask(item.id, checked)
+                    }}
+                  >
+                    <span className={cn('mr-2 shrink-0 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
+                      {checked ? '✓' : '○'}
+                    </span>
+                    <span className="min-w-0 truncate">{taskMenuLabel(item)}</span>
+                  </DropdownMenuItem>
+                )
+              })}
+              {doneTaskRows.length > 0 ? (
+                <>
+                  {openTaskRows.length > 0 ? <DropdownMenuSeparator /> : null}
+                  {doneTaskRows.map((item) => {
+                    const checked = taskIds.includes(item.id)
+                    return (
+                      <DropdownMenuItem
+                        key={item.id}
+                        className="min-w-0 text-muted-foreground line-through"
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          toggleTask(item.id, checked)
+                        }}
+                      >
+                        <span className={cn('mr-2 shrink-0 font-mono text-xs no-underline', checked ? 'opacity-100' : 'opacity-30')}>
+                          {checked ? '✓' : '○'}
+                        </span>
+                        <span className="min-w-0 truncate">{taskMenuLabel(item)}</span>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </>
+              ) : null}
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -504,6 +565,8 @@ function EntryEditor({
     billable: boolean
     activityId: string | null
     clientIds: string[]
+    requestIds: string[]
+    taskIds: string[]
   }) => void
 }) {
   const [fields, setFields] = useState<Fields>({
@@ -762,6 +825,8 @@ function EntryEditor({
                         billable: fields.billable,
                         activityId: fields.activityId || null,
                         clientIds: nextMode === 'manual' ? fields.clientIds : [],
+                        requestIds: fields.requestIds,
+                        taskIds: fields.taskIds,
                       })
                     }}
                   >

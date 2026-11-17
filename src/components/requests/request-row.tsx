@@ -29,14 +29,27 @@ import {
 import { TableCell, TableRow } from '@/components/ui/table'
 import { requestCode } from '@/lib/request-code'
 import { cn } from '@/lib/utils'
-import type { SupportRequest } from '@/types'
+import type { SupportRequest, TaskStatus } from '@/types'
 
 const NONE = '__none__'
+
+const STATUS_CLASS: Record<TaskStatus, string> = {
+  todo: 'text-destructive',
+  doing: 'text-amber-800 dark:text-amber-300',
+  done: '',
+}
+
+const STATUSES: { value: TaskStatus; label: string }[] = [
+  { value: 'todo', label: 'Todo' },
+  { value: 'doing', label: 'Doing' },
+  { value: 'done', label: 'Done' },
+]
 
 export type RequestPatch = {
   id: string
   requester: string
   request: string
+  status: TaskStatus
   projectId: string
   activityId: string
   clientIds: string[]
@@ -142,6 +155,7 @@ export function RequestLedgerRow({
       id: row.id,
       requester: extra?.requester ?? row.requester,
       request: extra?.request ?? row.request,
+      status: extra?.status ?? row.status,
       projectId: extra?.projectId ?? next.projectId,
       activityId: extra?.activityId ?? next.activityId,
       clientIds: extra?.clientIds ?? next.clientIds,
@@ -149,8 +163,10 @@ export function RequestLedgerRow({
     })
   }
 
+  const done = row.status === 'done'
+
   return (
-    <TableRow>
+    <TableRow className={cn(done && 'text-muted-foreground')}>
       <TableCell className="whitespace-nowrap tabular">{requestCode(row.task_number)}</TableCell>
       {showWorkspace ? <TableCell className="min-w-[10rem]">{workspaceName}</TableCell> : null}
       <TableCell className="whitespace-nowrap">{row.logged_on}</TableCell>
@@ -159,7 +175,7 @@ export function RequestLedgerRow({
           value={row.requester}
           label="Requester"
           required
-          className="min-w-0"
+          className={cn('min-w-0', done && 'line-through')}
           onSave={(requester) => persist(assignment, { requester })}
         />
       </TableCell>
@@ -168,9 +184,23 @@ export function RequestLedgerRow({
           value={row.request}
           label="Request"
           required
-          className="min-w-0"
+          className={cn('min-w-0', done && 'line-through')}
           onSave={(request) => persist(assignment, { request })}
         />
+      </TableCell>
+      <TableCell className="min-w-[8rem]">
+        <TableSelect value={row.status} onValueChange={(value) => persist(assignment, { status: value as TaskStatus })}>
+          <TableSelectTrigger aria-label="Status" className={STATUS_CLASS[row.status]}>
+            <TableSelectValue />
+          </TableSelectTrigger>
+          <TableSelectContent>
+            {STATUSES.map((status) => (
+              <TableSelectItem key={status.value} value={status.value} className={STATUS_CLASS[status.value]}>
+                {status.label}
+              </TableSelectItem>
+            ))}
+          </TableSelectContent>
+        </TableSelect>
       </TableCell>
       <TableCell className="min-w-[12rem]">
         <TableSelect
@@ -264,7 +294,10 @@ export function RequestLedgerRow({
             active={active}
             starting={tracking}
             stopping={stopping}
-            canStart={Boolean(row.project_id)}
+            canStart={Boolean(row.project_id) && row.status !== 'done'}
+            blockedLabel={
+              row.status === 'done' ? 'This request is done. Change its status to work on it again.' : undefined
+            }
             onStart={onTrack}
             onStop={onStop}
           />

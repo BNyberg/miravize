@@ -5,3 +5,9 @@ verify_jwt = true
 
 [functions.extract-task]
 verify_jwt = true
+
+[functions.send-invite]
+verify_jwt = true
+
+[functions.redeem-backup-code]
+verify_jwt = true

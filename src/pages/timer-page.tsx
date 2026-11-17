@@ -87,7 +87,7 @@ export function TimerPage() {
   const [span, setSpan] = useTimerSpan()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [focusNowAt, setFocusNowAt] = useState(0)
+  const [focusNowAt, setFocusNowAt] = useState(1)
   const qc = useQueryClient()
   const { data: running } = useRunningTimer()
   const now = useNow(Boolean(running))
@@ -254,6 +254,8 @@ export function TimerPage() {
       description: string
       activityId?: string | null
       clientIds?: string[]
+      requestIds?: string[]
+      taskIds?: string[]
     }) =>
       startTimer({
         workspaceId: input.workspaceId,
@@ -264,6 +266,8 @@ export function TimerPage() {
         source: 'quick_start',
         activityId: input.activityId,
         clientIds: input.clientIds,
+        requestIds: input.requestIds,
+        taskIds: input.taskIds,
       }),
     onSuccess: async () => {
       setDraft(null)
@@ -691,12 +695,14 @@ function WeekStrip({
         </div>
         {placed.map((share) => {
           const duration = formatSpan(share.seconds)
+          const percent = Math.round(share.width)
+          const label = `${duration} (${percent}%)`
           return (
             <Tooltip key={share.id}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${share.name} ${duration}`}
+                  aria-label={`${share.name} ${label}`}
                   className="absolute top-1/2 h-4 -translate-y-1/2"
                   style={{ left: `${share.left}%`, width: `${Math.max(share.width, 0.4)}%` }}
                 />
@@ -705,7 +711,7 @@ function WeekStrip({
                 <span className="flex items-center gap-2">
                   <span className="size-2 shrink-0 rounded-sm" style={{ background: share.color }} aria-hidden="true" />
                   <span>{share.name}</span>
-                  <span className="font-mono tabular-nums">{duration}</span>
+                  <span className="font-mono tabular-nums">{label}</span>
                 </span>
               </TooltipContent>
             </Tooltip>

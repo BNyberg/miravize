@@ -72,10 +72,13 @@ export function applyProject(
   const keptActivity = catalog.activities.find(
     (row) => row.id === current.activityId && row.project_id === nextProjectId,
   )
+  const defaultActivity = catalog.activities.find(
+    (row) => row.project_id === nextProjectId && row.client_id == null && row.is_default,
+  )
   const allowed = new Set(nextLinks.map((row) => row.client_id))
   return {
     projectId: nextProjectId,
-    activityId: keptActivity?.id ?? '',
+    activityId: keptActivity?.id ?? defaultActivity?.id ?? '',
     clientIds:
       nextMode === 'auto'
         ? [...allowed]

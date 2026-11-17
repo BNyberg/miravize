@@ -15,7 +15,7 @@ import {
 } from '@phosphor-icons/react'
 import { InboxIcon, ListBulletIcon } from '@heroicons/react/24/outline'
 import { useTheme } from 'next-themes'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { AccountPhoto } from '@/components/account/account-avatar'
@@ -35,6 +35,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/features/auth/auth-context'
+import { removeUnverifiedTotp } from '@/features/auth/mfa'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
@@ -211,6 +212,12 @@ export function AppShell() {
   const pagePad = bannerSpace ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/reports'
   const [open, setOpen] = useState(false)
   const { collapsed, toggle } = useSidebarCollapsed()
+
+  useEffect(() => {
+    void removeUnverifiedTotp().catch(() => {
+      // Leftover unverified factors are cleaned up the next time the app opens.
+    })
+  }, [])
 
   async function signOut() {
     await supabase.auth.signOut()

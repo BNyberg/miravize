@@ -9,20 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { isValidEmail } from '@/lib/email'
+import { PASSWORD_RULES, passwordIsStrong } from '@/lib/password'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
-
-const PASSWORD_RULES = [
-  { id: 'length', label: 'At least 8 characters', test: (value: string) => value.length >= 8 },
-  { id: 'upper', label: 'One uppercase letter', test: (value: string) => /[A-Z]/.test(value) },
-  { id: 'lower', label: 'One lowercase letter', test: (value: string) => /[a-z]/.test(value) },
-  { id: 'number', label: 'One number', test: (value: string) => /\d/.test(value) },
-  { id: 'special', label: 'One special character', test: (value: string) => /[^A-Za-z0-9]/.test(value) },
-] as const
-
-function passwordIsStrong(value: string) {
-  return PASSWORD_RULES.every((rule) => rule.test(value))
-}
 
 export function SignupPage() {
   const [email, setEmail] = useState('')

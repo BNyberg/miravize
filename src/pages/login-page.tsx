@@ -1,6 +1,6 @@
 import { Eye, EyeSlash } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link } from 'react-router'
 
 import { AuthSocialButtons } from '@/components/auth/auth-social-buttons'
 import { AuthSweepCopy } from '@/components/auth/auth-sweep-copy'
@@ -18,9 +18,6 @@ export function LoginPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const [params] = useSearchParams()
-  const navigate = useNavigate()
-  const next = params.get('next') || '/timer'
   const emailInvalid = email.length > 0 && !isValidEmail(email)
 
   async function onSubmit(e: React.FormEvent) {
@@ -28,9 +25,10 @@ export function LoginPage() {
     setPending(true)
     setError(null)
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
-    setPending(false)
-    if (err) setError(err.message)
-    else navigate(next)
+    if (err) {
+      setPending(false)
+      setError(err.message)
+    }
   }
 
   async function magicLink() {
@@ -83,7 +81,12 @@ export function LoginPage() {
           ) : null}
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link to="/forgot-password" className="text-sm text-[#5e5c57] underline-offset-4 hover:underline">
+              Forgot password?
+            </Link>
+          </div>
           <div className="relative">
             <Input
               id="password"

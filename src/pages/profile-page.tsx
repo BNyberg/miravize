@@ -5,8 +5,10 @@ import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 
 import { AccountAvatar } from '@/components/account/account-avatar'
+import { SecurityCard } from '@/components/account/security-card'
 import { avatarUrlFromUser } from '@/lib/avatar-image'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -19,6 +21,8 @@ import {
   CURRENCIES,
   CURRENCY_SYMBOL,
   TIMER_SPANS,
+  writeRequestsIncludeDoneStored,
+  writeTasksIncludeDoneStored,
   type AppTheme,
   type CurrencyCode,
 } from '@/lib/user-preferences'
@@ -158,6 +162,8 @@ export function ProfilePage() {
         </div>
       </section>
 
+      <SecurityCard />
+
       <div>
         <p className="mb-2 text-sm font-medium">Preferences</p>
         <section className="grid gap-4 rounded-lg border border-border bg-card p-4">
@@ -188,6 +194,32 @@ export function ProfilePage() {
                   {text}
                 </button>
               ))}
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="profile-show-done">Show done tasks</Label>
+            <div className="mt-2">
+              <Switch
+                id="profile-show-done"
+                checked={prefs.tasks_include_done}
+                onCheckedChange={(checked) => {
+                  writeTasksIncludeDoneStored(checked)
+                  schedule({ tasks_include_done: checked })
+                }}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="profile-show-done-requests">Show done requests</Label>
+            <div className="mt-2">
+              <Switch
+                id="profile-show-done-requests"
+                checked={prefs.requests_include_done}
+                onCheckedChange={(checked) => {
+                  writeRequestsIncludeDoneStored(checked)
+                  schedule({ requests_include_done: checked })
+                }}
+              />
             </div>
           </div>
           <div>

@@ -51,6 +51,19 @@ type Access = {
 
 type ConfirmState = { kind: 'invite' | 'member'; id: string; name: string } | null
 
+async function inviteFailure(err: unknown) {
+  const context =
+    err && typeof err === 'object' && 'context' in err
+      ? (err as { context?: { json?: () => Promise<unknown> } }).context
+      : undefined
+  if (context && typeof context.json === 'function') {
+    const body = (await context.json().catch(() => null)) as { error?: unknown } | null
+    if (body && typeof body.error === 'string' && body.error) return body.error
+  }
+  if (err instanceof Error && err.message) return err.message
+  return 'Try again.'
+}
+
 export function SettingsPage() {
   const { user } = useAuth()
   const { workspaceId, isAll, memberships, setWorkspaceId } = useWorkspace()
@@ -260,12 +273,21 @@ export function SettingsPage() {
   const sendInvites = useMutation({
     mutationFn: async () => {
       for (const email of inviteEmails) {
-        const { error } = await supabase.rpc('invite_to_workspace', {
+        const { data, error } = await supabase.rpc('invite_to_workspace', {
           p_workspace_id: inviteWorkspaceId,
           p_email: email,
           p_role: inviteRole,
         })
         if (error) throw error
+        const invite = data as { id?: string } | null
+        if (!invite?.id) throw new Error('Invite saved, but the email could not be sent.')
+        const { data: sent, error: fnErr } = await supabase.functions.invoke('send-invite', {
+          body: { invite_id: invite.id, origin: window.location.origin },
+        })
+        if (fnErr) throw new Error(await inviteFailure(fnErr))
+        if (sent && typeof sent === 'object' && 'error' in sent && sent.error) {
+          throw new Error(String(sent.error))
+        }
       }
     },
     onSuccess: async () => {

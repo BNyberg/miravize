@@ -15,7 +15,7 @@ export function useDebouncedPreferences() {
   const timerRef = useRef<number | null>(null)
   const inFlightRef = useRef(false)
   const [draft, setDraft] = useState<UserPreferences | null>(null)
-  const savedKey = `${saved.currency}:${saved.timer_span}:${saved.timer_zoom}:${saved.theme}`
+  const savedKey = `${saved.currency}:${saved.timer_span}:${saved.timer_zoom}:${saved.theme}:${saved.tasks_include_done}:${saved.requests_include_done}`
   savedRef.current = saved
 
   useEffect(() => {

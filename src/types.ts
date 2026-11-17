@@ -52,6 +52,7 @@ export type Activity = {
   project_id: string
   client_id: string | null
   name: string
+  is_default: boolean
 }
 
 export type Tag = {
@@ -134,6 +135,7 @@ export type Task = {
   screenshot_paths: string[]
   submission_id: string
   status: TaskStatus
+  completed_at: string | null
   created_at: string
   project?: Project | null
   activity?: Activity | null
@@ -154,6 +156,8 @@ export type SupportRequest = {
   screenshot_path: string | null
   screenshot_paths: string[]
   submission_id: string
+  status: TaskStatus
+  completed_at: string | null
   created_at: string
   project?: Project | null
   activity?: Activity | null
