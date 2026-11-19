@@ -60,12 +60,14 @@ function CellText({
   value,
   label,
   required,
+  emptyFallback,
   className,
   onSave,
 }: {
   value: string
   label: string
   required?: boolean
+  emptyFallback?: string
   className?: string
   onSave: (value: string) => void
 }) {
@@ -95,8 +97,13 @@ function CellText({
           onSave(next.trim())
           return
         }
-        if (next.trim() === value.trim()) return
-        onSave(next)
+        const trimmed = next.trim()
+        const saved = trimmed || emptyFallback || ''
+        if (saved === value.trim()) {
+          event.currentTarget.value = value
+          return
+        }
+        onSave(saved)
       }}
     />
   )
@@ -106,6 +113,7 @@ export function RequestLedgerRow({
   row,
   catalog,
   workspaceName,
+  idCode,
   showWorkspace,
   onPatch,
   tracking,
@@ -119,6 +127,7 @@ export function RequestLedgerRow({
   row: SupportRequest
   catalog: RequestCatalog
   workspaceName?: string
+  idCode: string
   showWorkspace: boolean
   onPatch: (next: RequestPatch) => void
   tracking: boolean
@@ -167,14 +176,14 @@ export function RequestLedgerRow({
 
   return (
     <TableRow className={cn(done && 'text-muted-foreground')}>
-      <TableCell className="whitespace-nowrap tabular">{requestCode(row.task_number)}</TableCell>
+      <TableCell className="whitespace-nowrap tabular">{requestCode(row.task_number, idCode)}</TableCell>
       {showWorkspace ? <TableCell className="min-w-[10rem]">{workspaceName}</TableCell> : null}
       <TableCell className="whitespace-nowrap">{row.logged_on}</TableCell>
       <TableCell className="w-32 min-w-32 max-w-32">
         <CellText
-          value={row.requester}
+          value={row.requester.trim() || '-'}
           label="Requester"
-          required
+          emptyFallback="-"
           className={cn('min-w-0', done && 'line-through')}
           onSave={(requester) => persist(assignment, { requester })}
         />

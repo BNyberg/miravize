@@ -1,13 +1,17 @@
 import html2canvas from 'html2canvas-pro'
 import { jsPDF } from 'jspdf'
 import { createRoot } from 'react-dom/client'
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactElement } from 'react'
 
 import { ReportPrint } from './report-print'
 
 const PAGE_WIDTH = 1123
 
-export async function downloadReportPdf(props: ComponentProps<typeof ReportPrint>, filename: string) {
+export function downloadChartReportPdf(props: ComponentProps<typeof ReportPrint>, filename: string) {
+  return downloadReportPdf(<ReportPrint {...props} />, filename)
+}
+
+export async function downloadReportPdf(sheetElement: ReactElement, filename: string) {
   const host = document.createElement('div')
   host.style.position = 'fixed'
   host.style.left = '0'
@@ -18,7 +22,7 @@ export async function downloadReportPdf(props: ComponentProps<typeof ReportPrint
   document.body.appendChild(host)
   const root = createRoot(host)
   try {
-    root.render(<ReportPrint {...props} />)
+    root.render(sheetElement)
     await document.fonts.ready
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     const images = [...host.querySelectorAll('img')]

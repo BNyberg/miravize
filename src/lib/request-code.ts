@@ -1,3 +1,3 @@
-export function requestCode(taskNumber: number) {
-  return `R-${String(taskNumber).padStart(2, '0')}`
+export function requestCode(taskNumber: number, idCode: string) {
+  return `R-${idCode}${String(taskNumber).padStart(2, '0')}`
 }

@@ -79,7 +79,7 @@ function RequesterField({
     queryFn: async () => {
       const { data, error } = await supabase.from('requests').select('requester').eq('workspace_id', workspaceId)
       if (error) throw error
-      return [...new Set((data ?? []).map((row) => row.requester.trim()).filter(Boolean))].sort((a, b) =>
+      return [...new Set((data ?? []).map((row) => row.requester.trim()).filter((name) => name && name !== '-'))].sort((a, b) =>
         a.localeCompare(b),
       )
     },
@@ -376,13 +376,12 @@ export function RequestComposer({
   const hasScreenshot = files.length > 0
   const canLog =
     Boolean(activeWorkspace) &&
-    (hasScreenshot || (requester.trim().length > 0 && request.trim().length > 0)) &&
+    (hasScreenshot || request.trim().length > 0) &&
     !pending
   const canTrack = canLog && Boolean(assignment.projectId)
   const reasonInput = {
     pending,
     hasWorkspace: Boolean(activeWorkspace),
-    hasRequester: hasScreenshot || requester.trim().length > 0,
     hasText: hasScreenshot || request.trim().length > 0,
     hasProject: Boolean(assignment.projectId),
     textLabel: 'request' as const,
@@ -507,19 +506,27 @@ export function RequestComposer({
         <div className="w-1/4 min-w-0">
           <RequesterField workspaceId={activeWorkspace} value={requester} onChange={onRequester} />
         </div>
-        <input
-          value={request}
-          onChange={(event) => onRequest(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canLog) {
-              event.preventDefault()
-              void submit(false)
-            }
-          }}
-          placeholder="Request"
-          aria-label="Request"
-          className="h-9 w-3/4 min-w-0 border-l border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
-        />
+        <div className="relative w-3/4 min-w-0">
+          {request.trim().length === 0 ? (
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+              Request<span className="text-destructive/70">*</span>
+            </span>
+          ) : null}
+          <input
+            value={request}
+            onChange={(event) => onRequest(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canLog) {
+                event.preventDefault()
+                void submit(false)
+              }
+            }}
+            required
+            aria-required
+            aria-label="Request"
+            className="h-9 w-full min-w-0 border-l border-border bg-transparent px-3 text-sm outline-none"
+          />
+        </div>
       </div>
 
       {previews.length > 0 ? (

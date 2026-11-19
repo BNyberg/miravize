@@ -26,7 +26,7 @@ export type MenuKinds = {
   separator?: unknown
 }
 
-type ItemProps = { children?: ReactNode; className?: string; disabled?: boolean; hidden?: boolean }
+type ItemProps = { children?: ReactNode; className?: string; disabled?: boolean; hidden?: boolean; value?: string }
 
 function flatten(children: ReactNode): ReactNode[] {
   const out: ReactNode[] = []

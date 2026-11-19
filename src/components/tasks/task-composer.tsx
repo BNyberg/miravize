@@ -79,7 +79,7 @@ function RequesterField({
     queryFn: async () => {
       const { data, error } = await supabase.from('tasks').select('requester').eq('workspace_id', workspaceId)
       if (error) throw error
-      return [...new Set((data ?? []).map((row) => row.requester.trim()).filter(Boolean))].sort((a, b) =>
+      return [...new Set((data ?? []).map((row) => row.requester.trim()).filter((name) => name && name !== '-'))].sort((a, b) =>
         a.localeCompare(b),
       )
     },
@@ -376,13 +376,12 @@ export function TaskComposer({
   const hasScreenshot = files.length > 0
   const canLog =
     Boolean(activeWorkspace) &&
-    (hasScreenshot || (requester.trim().length > 0 && task.trim().length > 0)) &&
+    (hasScreenshot || task.trim().length > 0) &&
     !pending
   const canTrack = canLog && Boolean(assignment.projectId)
   const reasonInput = {
     pending,
     hasWorkspace: Boolean(activeWorkspace),
-    hasRequester: hasScreenshot || requester.trim().length > 0,
     hasText: hasScreenshot || task.trim().length > 0,
     hasProject: Boolean(assignment.projectId),
     textLabel: 'task' as const,
@@ -507,19 +506,27 @@ export function TaskComposer({
         <div className="w-1/4 min-w-0">
           <RequesterField workspaceId={activeWorkspace} value={requester} onChange={onRequester} />
         </div>
-        <input
-          value={task}
-          onChange={(event) => onTask(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canLog) {
-              event.preventDefault()
-              void submit(false)
-            }
-          }}
-          placeholder="Task"
-          aria-label="Task"
-          className="h-9 w-3/4 min-w-0 border-l border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
-        />
+        <div className="relative w-3/4 min-w-0">
+          {task.trim().length === 0 ? (
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">
+              Task<span className="text-destructive/70">*</span>
+            </span>
+          ) : null}
+          <input
+            value={task}
+            onChange={(event) => onTask(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canLog) {
+                event.preventDefault()
+                void submit(false)
+              }
+            }}
+            required
+            aria-required
+            aria-label="Task"
+            className="h-9 w-full min-w-0 border-l border-border bg-transparent px-3 text-sm outline-none"
+          />
+        </div>
       </div>
 
       {previews.length > 0 ? (

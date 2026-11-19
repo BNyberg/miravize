@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 import { EntryMetaChips } from '@/components/timer/entry-editor'
+import { QuickStartMenu } from '@/components/timer/quick-start-menu'
 import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { Button } from '@/components/ui/button'
+import { toast } from '@/components/ui/toast'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
@@ -12,7 +14,7 @@ import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
 import { formatDuration } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
-import { updateEntryDescription, updateRunningEntry } from '@/lib/timer'
+import { startTimer, updateEntryDescription, updateRunningEntry } from '@/lib/timer'
 import { cn } from '@/lib/utils'
 import type { Activity, Client, Project, ProjectClient, TimeEntry } from '@/types'
 
@@ -117,6 +119,13 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
       if (error) throw error
     },
     onSuccess: refresh,
+    onError: (err: Error) => toast({ tone: 'error', title: 'Could not stop tracking', description: err.message }),
+  })
+
+  const quickStart = useMutation({
+    mutationFn: startTimer,
+    onSuccess: refresh,
+    onError: (err: Error) => toast({ tone: 'error', title: 'Could not switch tracking', description: err.message }),
   })
 
   const describe = useMutation({
@@ -218,10 +227,36 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
         />
       </div>
       <span className="tabular shrink-0 font-semibold">{formatDuration(elapsed)}</span>
-      <Button variant="outline" onClick={() => stop.mutate()} disabled={stop.isPending}>
-        <Pause aria-hidden="true" />
-        Stop
-      </Button>
+      <div className="flex">
+        <Button
+          className="rounded-r-none"
+          variant="outline"
+          onClick={() => stop.mutate()}
+          disabled={stop.isPending || quickStart.isPending}
+        >
+          <Pause aria-hidden="true" />
+          Stop
+        </Button>
+        <QuickStartMenu
+          label="Quick switch"
+          variant="outline"
+          pending={stop.isPending || quickStart.isPending}
+          projects={catalog.projects.filter((project) => (isAll ? true : project.workspace_id === workspaceId))}
+          activities={catalog.activities}
+          clients={catalog.clients}
+          projectClients={catalog.projectClients}
+          onSelect={(input) =>
+            quickStart.mutate({
+              workspaceId: input.workspaceId,
+              projectId: input.projectId,
+              billable: input.billable,
+              description: input.description,
+              activityId: input.activityId,
+              clientIds: input.clientIds,
+            })
+          }
+        />
+      </div>
     </div>
     </div>
     </div>

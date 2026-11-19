@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from '@/components/ui/toast'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   decodeWorkspaceIcon,
   encodeWorkspaceIcon,
@@ -27,6 +28,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
+import { suggestWorkspaceIdCode, workspaceIdInput } from '@/lib/workspace-id-code'
 import { cn } from '@/lib/utils'
 import type { WorkspaceInvite, WorkspaceRole } from '@/types'
 
@@ -80,6 +82,8 @@ export function SettingsPage() {
   const [hero, setHero] = useState<string | null>(null)
   const [custom, setCustom] = useState('')
   const [draftName, setDraftName] = useState('')
+  const [draftId, setDraftId] = useState('')
+  const [idConfirm, setIdConfirm] = useState<string | null>(null)
   const [draftHero, setDraftHero] = useState<string | null>(null)
   const [draftCustom, setDraftCustom] = useState('')
   const [confirm, setConfirm] = useState<ConfirmState>(null)
@@ -213,6 +217,8 @@ export function SettingsPage() {
     return visible.filter((row) => row.workspace.name.toLowerCase().includes(query))
   }, [visible, workspaceQuery])
   const draftIcon = encodeWorkspaceIcon(draftCustom, draftHero)
+  const draftSuggestion = suggestWorkspaceIdCode(draftName)
+  const confirmedCode = (idConfirm ?? '').trim() || draftSuggestion
 
   async function refreshPeople() {
     await Promise.all([
@@ -241,10 +247,15 @@ export function SettingsPage() {
   })
 
   const createWs = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (idCode: string) => {
       const icon = encodeWorkspaceIcon(draftCustom, draftHero)
       if (!icon.ok) throw new Error('Use one emoji or up to two letters.')
-      const { data, error } = await supabase.rpc('create_workspace', { p_name: draftName.trim() })
+      const taken = memberships.some((row) => row.workspace.id_code === idCode)
+      if (taken) throw new Error(`ID ${idCode} is already used.`)
+      const { data, error } = await supabase.rpc('create_workspace', {
+        p_name: draftName.trim(),
+        p_id_code: idCode,
+      })
       if (error) throw error
       const id = (data as { id: string }).id
       if (icon.value) {
@@ -260,6 +271,8 @@ export function SettingsPage() {
     onSuccess: async (data) => {
       await qc.invalidateQueries({ queryKey: qk.memberships })
       setDraftName('')
+      setDraftId('')
+      setIdConfirm(null)
       setDraftHero(null)
       setDraftCustom('')
       if (data?.id) {
@@ -269,6 +282,15 @@ export function SettingsPage() {
     },
     onError: (err: Error) => toast({ tone: 'error', title: "Couldn't create workspace", description: err.message }),
   })
+
+  function startCreate() {
+    if (!draftName.trim() || !draftIcon.ok || createWs.isPending) return
+    if (!draftId.trim()) {
+      setIdConfirm(draftSuggestion)
+      return
+    }
+    createWs.mutate(draftId.trim())
+  }
 
   const sendInvites = useMutation({
     mutationFn: async () => {
@@ -416,7 +438,17 @@ export function SettingsPage() {
                 value={draftName}
                 onChange={(event) => setDraftName(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && draftName.trim() && draftIcon.ok) createWs.mutate()
+                  if (event.key === 'Enter') startCreate()
+                }}
+              />
+              <Input
+                aria-label="ID"
+                className="h-9 w-[3.4rem] shrink-0 text-center uppercase"
+                placeholder={draftSuggestion}
+                value={draftId}
+                onChange={(event) => setDraftId(workspaceIdInput(event.target.value))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') startCreate()
                 }}
               />
               <Button
@@ -424,7 +456,7 @@ export function SettingsPage() {
                 className="h-9 shrink-0 px-2.5"
                 disabled={!draftName.trim() || !draftIcon.ok}
                 loading={createWs.isPending}
-                onClick={() => createWs.mutate()}
+                onClick={startCreate}
               >
                 + Add
               </Button>
@@ -434,6 +466,7 @@ export function SettingsPage() {
             {selected ? (
               <WorkspaceFields
                 name={name}
+                idCode={selected.workspace.id_code}
                 canManage={canManage}
                 hero={hero}
                 custom={custom}
@@ -489,6 +522,31 @@ export function SettingsPage() {
             ) : null}
           </div>
         </div>
+
+      <Dialog open={idConfirm !== null} onOpenChange={(open) => { if (!open) setIdConfirm(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Use ID {confirmedCode}?</DialogTitle>
+            <DialogDescription>
+              Tasks and requests will look like T-{confirmedCode}01 and R-{confirmedCode}01.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            aria-label="ID"
+            className="h-9 uppercase"
+            value={idConfirm ?? ''}
+            onChange={(event) => setIdConfirm(workspaceIdInput(event.target.value))}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIdConfirm(null)}>
+              Cancel
+            </Button>
+            <Button type="button" loading={createWs.isPending} disabled={!confirmedCode} onClick={() => createWs.mutate(confirmedCode)}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(confirm)} onOpenChange={(open) => { if (!open) setConfirm(null) }}>
         <DialogContent>
@@ -625,6 +683,7 @@ function IconChooser({
 
 function WorkspaceFields({
   name,
+  idCode,
   canManage,
   hero,
   custom,
@@ -638,6 +697,7 @@ function WorkspaceFields({
   onSave,
 }: {
   name: string
+  idCode: string
   canManage: boolean
   hero: string | null
   custom: string
@@ -672,6 +732,21 @@ function WorkspaceFields({
         <Button type="button" variant="outline" className="h-9" disabled={!canManage} onClick={onDefault}>
           Reset icon
         </Button>
+        <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="w-[3.4rem] cursor-not-allowed">
+              <Input
+                aria-label="Task and request ID"
+                readOnly
+                tabIndex={-1}
+                value={idCode}
+                className="pointer-events-none h-9 text-center text-muted-foreground"
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>This is the task and request identifier.</TooltipContent>
+        </Tooltip>
         {canManage ? (
           <Button type="button" className="ml-auto h-9" disabled={!dirty} loading={saving} onClick={onSave}>
             Save

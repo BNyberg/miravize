@@ -144,9 +144,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const user = session?.user
     const name = user?.user_metadata?.workspace_name
+    const idCode = user?.user_metadata?.workspace_id_code
     if (!user || typeof name !== 'string' || !name.trim()) return
     let cancelled = false
-    void ensureSignupWorkspace(user.id, name)
+    void ensureSignupWorkspace(user.id, name, typeof idCode === 'string' ? idCode : undefined)
       .then(() => {
         if (!cancelled) void queryClient.invalidateQueries({ queryKey: qk.memberships })
       })

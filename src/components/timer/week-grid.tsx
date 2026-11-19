@@ -84,6 +84,14 @@ function WeekGrid({
     endY: number
   } | null>(null)
 
+  function scrollToNow(node: HTMLDivElement) {
+    const hours = node.querySelector<HTMLElement>('.week-hours')
+    const offset = hours?.offsetTop ?? 0
+    const y = topFor(nowRef.current, new Date(nowRef.current), hourPxRef.current)
+    const max = Math.max(0, node.scrollHeight - node.clientHeight)
+    node.scrollTop = Math.min(max, Math.max(0, offset + y - node.clientHeight / 2))
+  }
+
   useEffect(() => {
     const node = scroller.current
     if (!node) return
@@ -95,7 +103,7 @@ function WeekGrid({
     }
     hourPxRef.current = hourPx
     if (focusNowAt > 0 && focusNowAt !== alignedNowAt.current) return
-    node.scrollTop = 7 * hourPx
+    scrollToNow(node)
   }, [days[0]?.toISOString(), days.length, hourPx, focusNowAt])
 
   useEffect(() => {
@@ -104,12 +112,7 @@ function WeekGrid({
     const frame = requestAnimationFrame(() => {
       const node = scroller.current
       if (!node) return
-      const hours = node.querySelector<HTMLElement>('.week-hours')
-      const offset = hours?.offsetTop ?? 0
-      const px = hourPxRef.current
-      const y = topFor(nowRef.current, new Date(nowRef.current), px)
-      const max = Math.max(0, node.scrollHeight - node.clientHeight)
-      node.scrollTop = Math.min(max, Math.max(0, offset + y - node.clientHeight / 2))
+      scrollToNow(node)
     })
     return () => cancelAnimationFrame(frame)
   }, [focusNowAt])

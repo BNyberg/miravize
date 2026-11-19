@@ -2,7 +2,6 @@ type LogDisabledReasonInput = {
   pending: boolean
   track: boolean
   hasWorkspace: boolean
-  hasRequester: boolean
   hasText: boolean
   hasProject: boolean
   textLabel: 'task' | 'request'
@@ -18,7 +17,6 @@ export function logDisabledReason({
   pending,
   track,
   hasWorkspace,
-  hasRequester,
   hasText,
   hasProject,
   textLabel,
@@ -26,7 +24,6 @@ export function logDisabledReason({
   if (pending) return null
 
   const fields: string[] = []
-  if (!hasRequester) fields.push('a requester')
   if (!hasText) fields.push(`a ${textLabel}`)
 
   const needsWorkspace = !hasWorkspace
@@ -44,7 +41,7 @@ export function logDisabledReason({
     const fill =
       fields.length > 1
         ? 'fill those in'
-        : `fill in the requester and ${textLabel}`
+        : `fill in the ${textLabel}`
     parts.push(`Attach a screenshot of the request to ${fill}.`)
   } else if (needsWorkspace) {
     parts.push('Pick a workspace, or choose a project.')

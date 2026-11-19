@@ -28,6 +28,8 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { qk } from '@/lib/query-keys'
+import { applyActivity, applyClients, applyProject, type RequestCatalog } from '@/lib/request-assignment'
+import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { requestCode } from '@/lib/request-code'
 import { taskCode } from '@/lib/task-code'
 import { formatDuration } from '@/lib/splits'
@@ -87,6 +89,28 @@ function spanFrom(day: Date, startHHmm: string, endHHmm: string) {
   let end = atTime(day, endHHmm)
   if (end.getTime() <= start.getTime()) end = addDays(end, 1)
   return { start, end }
+}
+
+function sameIdList(left: string[], right: string[]) {
+  if (left.length !== right.length) return false
+  const a = [...left].sort()
+  const b = [...right].sort()
+  return a.every((id, index) => id === b[index])
+}
+
+function sameSaved(left: EntrySaveInput, right: EntrySaveInput) {
+  return (
+    left.workspaceId === right.workspaceId &&
+    left.projectId === right.projectId &&
+    left.description === right.description &&
+    left.billable === right.billable &&
+    left.activityId === right.activityId &&
+    (left.start?.getTime() ?? null) === (right.start?.getTime() ?? null) &&
+    (left.end?.getTime() ?? null) === (right.end?.getTime() ?? null) &&
+    sameIdList(left.clientIds, right.clientIds) &&
+    sameIdList(left.requestIds, right.requestIds) &&
+    sameIdList(left.taskIds, right.taskIds)
+  )
 }
 
 function insidePicker(event: { target: EventTarget | null }) {
@@ -164,15 +188,25 @@ function EntryMetaChips({
     billable: boolean
   }) => void
 }) {
+  const catalog: RequestCatalog = { projects, activities, clients, projectClients, aliases: [] }
+  const inWorkspace = (id: string) => !workspaceId || id === workspaceId
+  const projectChoices = projects.filter((item) => inWorkspace(item.workspace_id))
   const project = projects.find((item) => item.id === projectId)
   const scopeWorkspaceId = project?.workspace_id || workspaceId
-  const links = projectClients.filter((row) => row.project_id === projectId)
-  const mode = clientMode(links)
-  const projectActivities = activities.filter((row) => row.project_id === projectId)
-  const activity = projectActivities.find((row) => row.id === activityId)
-  const linkedClients = links
+  const { workspaces } = useWorkspace()
+  const idCode = workspaces.find((workspace) => workspace.id === scopeWorkspaceId)?.id_code ?? ''
+  const activityChoices = projectId
+    ? activities.filter((row) => row.project_id === projectId)
+    : activities.filter((row) => inWorkspace(row.workspace_id))
+  const activity = activities.find((row) => row.id === activityId)
+  const linkedClients = projectClients
+    .filter((row) => row.project_id === projectId)
     .map((row) => clients.find((item) => item.id === row.client_id))
     .filter((item): item is Client => Boolean(item))
+  const clientChoices = projectId
+    ? [...new Map(linkedClients.map((item) => [item.id, item])).values()]
+    : clients.filter((item) => inWorkspace(item.workspace_id))
+  const assignment = { projectId, activityId, clientIds }
   const workspaceRequests = useQuery({
     queryKey: qk.requests(`${scopeWorkspaceId}-picker`),
     enabled: Boolean(scopeWorkspaceId),
@@ -209,7 +243,7 @@ function EntryMetaChips({
   const doneTaskRows = taskRows.filter((row) => row.status === 'done')
 
   function requestIdLabel(row: { task_number: number }) {
-    return requestCode(row.task_number)
+    return requestCode(row.task_number, idCode)
   }
 
   function requestMenuLabel(row: { task_number: number; status: TaskStatus; request: string }) {
@@ -226,7 +260,7 @@ function EntryMetaChips({
 
   function taskMenuLabel(row: { task_number: number; status: TaskStatus; task: string }) {
     const status = row.status === 'doing' ? 'Doing' : row.status === 'done' ? 'Done' : 'Todo'
-    return `${taskCode(row.task_number)} · ${status} · ${row.task}`
+    return `${taskCode(row.task_number, idCode)} · ${status} · ${row.task}`
   }
 
   function toggleTask(taskId: string, checked: boolean) {
@@ -234,42 +268,17 @@ function EntryMetaChips({
     onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds, requestIds, taskIds: nextTasks, description, billable })
   }
 
-  function applyProject(nextProjectId: string) {
-    const nextProject = projects.find((item) => item.id === nextProjectId)
-    const nextLinks = projectClients.filter((row) => row.project_id === nextProjectId)
-    const nextMode = clientMode(nextLinks)
-    const keptActivity = activities.find((row) => row.id === activityId && row.project_id === nextProjectId)
-    const defaultActivity = activities.find(
-      (row) => row.project_id === nextProjectId && row.client_id == null && row.is_default,
-    )
-    const allowed = new Set(nextLinks.map((row) => row.client_id))
+  function emit(next: { projectId: string; activityId: string; clientIds: string[] }) {
+    const nextProject = projects.find((item) => item.id === next.projectId)
     onChange({
       workspaceId: nextProject?.workspace_id ?? workspaceId,
-      projectId: nextProjectId,
-      billable: nextProject?.billable ?? billable,
-      activityId: keptActivity?.id ?? defaultActivity?.id ?? '',
-      clientIds: nextMode === 'manual' ? clientIds.filter((id) => allowed.has(id)) : [],
+      projectId: next.projectId,
+      activityId: next.activityId,
+      clientIds: next.clientIds,
       requestIds,
-  taskIds,
+      taskIds,
       description,
-    })
-  }
-
-  function applyActivity(nextActivityId: string) {
-    const nextActivity = projectActivities.find((row) => row.id === nextActivityId)
-    let nextClients = clientIds
-    if (mode === 'manual' && nextActivity?.client_id && !nextClients.includes(nextActivity.client_id)) {
-      nextClients = [...nextClients, nextActivity.client_id]
-    }
-    onChange({
-      workspaceId: scopeWorkspaceId,
-      projectId,
-      activityId: nextActivityId,
-      clientIds: nextClients,
-      requestIds,
-  taskIds,
-      description,
-      billable,
+      billable: nextProject && next.projectId !== projectId ? nextProject.billable : billable,
     })
   }
 
@@ -283,60 +292,66 @@ function EntryMetaChips({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {projects.map((item) => (
-            <DropdownMenuItem key={item.id} onSelect={() => applyProject(item.id)}>
+          {project ? (
+            <DropdownMenuItem onSelect={() => emit({ projectId: '', activityId: '', clientIds: [] })}>
+              Clear project
+            </DropdownMenuItem>
+          ) : null}
+          {projectChoices.map((item) => (
+            <DropdownMenuItem key={item.id} onSelect={() => emit(applyProject(assignment, item.id, catalog))}>
               <span className="size-2 shrink-0 rounded-sm" style={{ background: item.color }} aria-hidden="true" />
               {item.name}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      {projectActivities.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button">
-              <Chip label={activity?.name ?? 'Activity'} empty={!activity} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {activity ? (
-              <DropdownMenuItem
-                onSelect={() =>
-                  onChange({ workspaceId: scopeWorkspaceId, projectId, activityId: '', clientIds, requestIds,
-  taskIds, description, billable })
-                }
-              >
-                Clear activity
-              </DropdownMenuItem>
-            ) : null}
-            {projectActivities.map((item) => (
-              <DropdownMenuItem key={item.id} onSelect={() => applyActivity(item.id)}>
-                {item.name}
-                {item.client_id ? ` · ${clients.find((client) => client.id === item.client_id)?.name ?? ''}` : ''}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-      {mode === 'manual' ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button">
-              <Chip
-                label={
-                  clientIds.length === 0
-                    ? 'Client'
-                    : clientIds
-                        .map((id) => linkedClients.find((item) => item.id === id)?.name)
-                        .filter(Boolean)
-                        .join(', ')
-                }
-                empty={clientIds.length === 0}
-              />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {linkedClients.map((item) => {
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button">
+            <Chip label={activity?.name ?? 'Activity'} empty={!activity} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {activityChoices.length === 0 ? (
+            <DropdownMenuItem disabled>No activities</DropdownMenuItem>
+          ) : (
+            <>
+              {activity ? (
+                <DropdownMenuItem onSelect={() => emit({ ...assignment, activityId: '' })}>
+                  Clear activity
+                </DropdownMenuItem>
+              ) : null}
+              {activityChoices.map((item) => (
+                <DropdownMenuItem key={item.id} onSelect={() => emit(applyActivity(assignment, item.id, catalog))}>
+                  {item.name}
+                  {item.client_id ? ` · ${clients.find((client) => client.id === item.client_id)?.name ?? ''}` : ''}
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button">
+            <Chip
+              label={
+                clientIds.length === 0
+                  ? 'Client'
+                  : clientIds
+                      .map((id) => clients.find((item) => item.id === id)?.name)
+                      .filter(Boolean)
+                      .join(', ')
+              }
+              empty={clientIds.length === 0}
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {clientChoices.length === 0 ? (
+            <DropdownMenuItem disabled>No clients</DropdownMenuItem>
+          ) : (
+            clientChoices.map((item) => {
               const checked = clientIds.includes(item.id)
               return (
                 <DropdownMenuItem
@@ -344,8 +359,7 @@ function EntryMetaChips({
                   onSelect={(event) => {
                     event.preventDefault()
                     const nextClients = checked ? clientIds.filter((id) => id !== item.id) : [...clientIds, item.id]
-                    onChange({ workspaceId: scopeWorkspaceId, projectId, activityId, clientIds: nextClients, requestIds,
-  taskIds, description, billable })
+                    emit(applyClients(assignment, nextClients, catalog))
                   }}
                 >
                   <span className={cn('mr-2 font-mono text-xs', checked ? 'opacity-100' : 'opacity-30')}>
@@ -354,16 +368,10 @@ function EntryMetaChips({
                   {item.name}
                 </DropdownMenuItem>
               )
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-      {mode === 'auto' ? (
-        <Chip
-          label={linkedClients.map((item) => item.name).join(', ') || 'Split clients'}
-          className="pointer-events-none opacity-80"
-        />
-      ) : null}
+            })
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
       </div>
       <div className="flex min-w-0 flex-wrap gap-1.5">
       <DropdownMenu>
@@ -458,7 +466,7 @@ function EntryMetaChips({
               <button type="button">
                 <Chip
                   className="max-w-64"
-                  label={linkedTasks.length === 0 ? 'Tasks' : linkedTasks.map((row) => taskCode(row.task_number)).join(', ')}
+                  label={linkedTasks.length === 0 ? 'Tasks' : linkedTasks.map((row) => taskCode(row.task_number, idCode)).join(', ')}
                   empty={taskIds.length === 0}
                 />
               </button>
@@ -472,7 +480,7 @@ function EntryMetaChips({
                 <span className="block space-y-1">
                   {linkedTasks.map((row) => (
                     <span key={row.id} className="block">
-                      {taskCode(row.task_number)} · {row.task}
+                      {taskCode(row.task_number, idCode)} · {row.task}
                     </span>
                   ))}
                 </span>
@@ -556,7 +564,7 @@ function EntryEditor({
   pending: boolean
   onClose: () => void
   onSave: (input: EntrySaveInput) => void
-  onPatch: (input: EntrySaveInput) => Promise<void>
+  onPatch: (input: EntrySaveInput, previous: EntrySaveInput) => Promise<void>
   onDelete?: (id: string) => void
   onContinue?: (input: {
     workspaceId: string
@@ -583,6 +591,7 @@ function EntryEditor({
   })
   const [confirmDelete, setConfirmDelete] = useState(false)
   const snapshot = useRef<Fields>(fields)
+  const pendingCommit = useRef<Fields | null>(null)
   const saving = useRef(false)
 
   useEffect(() => {
@@ -611,7 +620,6 @@ function EntryEditor({
 
   function payload(next: Fields): EntrySaveInput | null {
     if (!draft || !next.projectId) return null
-    const nextMode = clientMode(projectClients.filter((row) => row.project_id === next.projectId))
     const workspaceId = projects.find((project) => project.id === next.projectId)?.workspace_id || next.workspaceId
     return {
       mode: draft.mode,
@@ -622,7 +630,7 @@ function EntryEditor({
       billable: next.billable,
       tagIds: [],
       activityId: next.activityId || null,
-      clientIds: nextMode === 'manual' ? next.clientIds : [],
+      clientIds: next.clientIds,
       requestIds: next.requestIds,
       taskIds: next.taskIds,
       start: next.start ?? undefined,
@@ -635,24 +643,34 @@ function EntryEditor({
       setFields(next)
       return
     }
-    const input = payload(next)
-    if (!input) {
-      setFields(next)
-      return
-    }
-    const previous = snapshot.current
     setFields(next)
+    if (!payload(next)) return
+    pendingCommit.current = next
+    if (saving.current) return
     saving.current = true
     try {
-      await onPatch(input)
-      snapshot.current = next
-    } catch (err) {
-      setFields(previous)
-      toast({
-        tone: 'error',
-        title: 'Could not save entry',
-        description: err instanceof Error ? err.message : 'Try again.',
-      })
+      while (pendingCommit.current) {
+        const target = pendingCommit.current
+        pendingCommit.current = null
+        const input = payload(target)
+        const previousFields = snapshot.current
+        const previous = payload(previousFields)
+        if (!input || !previous) continue
+        if (sameSaved(input, previous)) continue
+        try {
+          await onPatch(input, previous)
+          snapshot.current = target
+        } catch (err) {
+          pendingCommit.current = null
+          setFields(previousFields)
+          toast({
+            tone: 'error',
+            title: 'Could not save entry',
+            description: err instanceof Error ? err.message : 'Try again.',
+          })
+          break
+        }
+      }
     } finally {
       saving.current = false
     }
@@ -815,7 +833,6 @@ function EntryEditor({
                     disabled={pending || !onContinue}
                     onClick={() => {
                       if (!onContinue) return
-                      const nextMode = clientMode(projectClients.filter((row) => row.project_id === fields.projectId))
                       const workspaceId =
                         projects.find((project) => project.id === fields.projectId)?.workspace_id || fields.workspaceId
                       onContinue({
@@ -824,7 +841,7 @@ function EntryEditor({
                         description: fields.description,
                         billable: fields.billable,
                         activityId: fields.activityId || null,
-                        clientIds: nextMode === 'manual' ? fields.clientIds : [],
+                        clientIds: fields.clientIds,
                         requestIds: fields.requestIds,
                         taskIds: fields.taskIds,
                       })

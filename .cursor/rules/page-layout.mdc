@@ -20,6 +20,7 @@ These are product mandates, not optional UX suggestions.
 ## Project, client, and activity controls
 
 - A page filter for project, client, or activity uses `Select` from `@/components/ui/select`, the same bordered trigger as the workspace switcher. Include an All row. Text stays left-aligned.
+- Report filters for workspace, project, client, and activity use `MultiSelect` from `@/components/ui/multi-select`. An empty selection means all. The All row clears the selection. The trigger matches `Select`.
 - Assigning those fields on a timer or entry keeps the chips in `EntryMetaChips`.
 - Do not use a native `<select>`.
 - Every `DropdownMenuItem` and `SelectItem` highlights on hover (`hover:bg-muted`).

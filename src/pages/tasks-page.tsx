@@ -139,7 +139,8 @@ export function TasksPage() {
     const query = taskId.trim().toLowerCase().replace(/^#/, '')
     return (list.data ?? [])
       .filter((row) => {
-        if (query && !taskCode(row.task_number).toLowerCase().includes(query)) return false
+        const idCode = workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''
+        if (query && !taskCode(row.task_number, idCode).toLowerCase().includes(query)) return false
         if (projectId && (row.project_id ?? NO_PROJECT) !== projectId) return false
         if (activityId && (row.activity_id ?? NO_ACTIVITY) !== activityId) return false
         if (!statuses.includes(row.status)) return false
@@ -153,7 +154,7 @@ export function TasksPage() {
         if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1
         return b.task_number - a.task_number || (a.id < b.id ? 1 : -1)
       })
-  }, [activityId, catalog, clientId, list.data, projectId, statuses, taskId])
+  }, [activityId, catalog, clientId, list.data, projectId, statuses, taskId, workspaces])
 
   const save = useMutation({
     mutationFn: async (input: {
@@ -186,11 +187,10 @@ export function TasksPage() {
         nextTask = nextTask || String(data?.task ?? '').trim()
         setRequester(nextRequester)
         setTask(nextTask)
-        if (!nextRequester || !nextTask) {
-          throw new Error('Add the requester and task, then log again.')
-        }
+        if (!nextTask) throw new Error('Add the task, then log again.')
       }
-      if (!nextRequester || !nextTask) throw new Error('Add the requester and task.')
+      if (!nextTask) throw new Error('Add the task.')
+      nextRequester = nextRequester || '-'
       const { data, error: err } = await supabase.rpc('log_task', {
         p_workspace_id: input.workspaceId,
         p_submission_id: submissionId,
@@ -347,7 +347,7 @@ export function TasksPage() {
           .filter(Boolean)
           .join(', ')
         const values = [
-          taskCode(row.task_number),
+          taskCode(row.task_number, workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''),
           ...(isAll ? [workspaces.find((ws) => ws.id === row.workspace_id)?.name ?? ''] : []),
           row.logged_on,
           row.requester,
@@ -524,6 +524,7 @@ export function TasksPage() {
                 catalog={catalog}
                 showWorkspace={isAll}
                 workspaceName={workspaces.find((ws) => ws.id === row.workspace_id)?.name}
+                idCode={workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''}
                 onPatch={(next) => patch.mutate(next)}
                 tracking={track.isPending && track.variables?.id === row.id}
                 active={activeTaskIds.has(row.id)}

@@ -6,6 +6,7 @@ export type Workspace = {
   created_by: string
   settings: Record<string, unknown>
   icon: string | null
+  id_code: string
   created_at: string
 }
 
@@ -92,11 +93,12 @@ export type TimeEntry = {
   time_entry_tags?: { tag_id: string; tags?: Tag }[]
   time_entry_requests?: {
     request_id: string
-    request?: {
+      request?: {
       id: string
       task_number: number
       request: string
       requester?: string | null
+      status?: string | null
       project_id: string | null
       activity_id?: string | null
       project?: { name: string } | null
@@ -105,11 +107,12 @@ export type TimeEntry = {
   }[]
   time_entry_tasks?: {
     task_id: string
-    task?: {
+      task?: {
       id: string
       task_number: number
       task: string
       requester?: string | null
+      status?: string | null
       project_id: string | null
       activity_id?: string | null
       project?: { name: string } | null

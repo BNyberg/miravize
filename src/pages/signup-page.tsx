@@ -6,11 +6,20 @@ import { AuthSocialButtons } from '@/components/auth/auth-social-buttons'
 import { AuthSweepCopy } from '@/components/auth/auth-sweep-copy'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { isValidEmail } from '@/lib/email'
 import { PASSWORD_RULES, passwordIsStrong } from '@/lib/password'
 import { supabase } from '@/lib/supabase'
+import { suggestWorkspaceIdCode, workspaceIdInput } from '@/lib/workspace-id-code'
 import { cn } from '@/lib/utils'
 
 export function SignupPage() {
@@ -18,37 +27,49 @@ export function SignupPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [workspaceName, setWorkspaceName] = useState('Personal')
+  const [idCode, setIdCode] = useState('')
+  const [idConfirm, setIdConfirm] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
   const emailInvalid = email.length > 0 && !isValidEmail(email)
+  const suggestion = suggestWorkspaceIdCode(workspaceName)
+  const confirmedCode = (idConfirm ?? '').trim() || suggestion
   const canSubmit =
     !pending && isValidEmail(email) && passwordIsStrong(password) && workspaceName.trim().length > 0
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!canSubmit) return
+  async function createAccount(code: string) {
     setPending(true)
     setError(null)
+    setIdConfirm(null)
     const name = workspaceName.trim() || 'Personal'
     const { data, error: err } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: window.location.origin,
-        data: { workspace_name: name },
+        data: { workspace_name: name, workspace_id_code: code },
       },
     })
+    setPending(false)
     if (err) {
-      setPending(false)
       setError(err.message)
       return
     }
-    setPending(false)
     if (!data.session) {
       setMessage('Check your email to confirm the account, then sign in. Your workspace is created with the account.')
     }
+  }
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    if (!idCode.trim()) {
+      setIdConfirm(suggestion)
+      return
+    }
+    void createAccount(idCode.trim())
   }
 
   return (
@@ -141,14 +162,48 @@ export function SignupPage() {
           <Label htmlFor="workspace">
             First workspace <span className="text-destructive">*</span>
           </Label>
-          <Input
-            id="workspace"
-            required
-            aria-required
-            value={workspaceName}
-            onChange={(e) => setWorkspaceName(e.target.value)}
-          />
+          <div className="flex gap-2">
+            <Input
+              id="workspace"
+              required
+              aria-required
+              className="min-w-0 flex-1"
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+            />
+            <Input
+              aria-label="ID"
+              className="w-[3.4rem] uppercase"
+              placeholder={suggestion}
+              value={idCode}
+              onChange={(e) => setIdCode(workspaceIdInput(e.target.value))}
+            />
+          </div>
         </div>
+        <Dialog open={idConfirm !== null} onOpenChange={(open) => { if (!open) setIdConfirm(null) }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Use ID {confirmedCode}?</DialogTitle>
+              <DialogDescription>
+                Tasks and requests will look like T-{confirmedCode}01 and R-{confirmedCode}01.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              aria-label="ID"
+              className="h-9 uppercase"
+              value={idConfirm ?? ''}
+              onChange={(e) => setIdConfirm(workspaceIdInput(e.target.value))}
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIdConfirm(null)}>
+                Cancel
+              </Button>
+              <Button type="button" disabled={!confirmedCode || pending} onClick={() => void createAccount(confirmedCode)}>
+                Create
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <Button type="submit" className="h-10" disabled={!canSubmit}>
           Create account
         </Button>

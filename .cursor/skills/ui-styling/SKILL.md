@@ -16,7 +16,7 @@ Follow `.cursor/rules/page-layout.mdc` on every screen:
 
 - The nav names the page. The in-page heading is screen-reader only. No visible title and no subtitle.
 - App pages fill the main column the way Projects does. Do not cap them with `max-w-*`. Auth cards stay narrow.
-- A page filter for project, client, or activity uses `Select`, the same bordered trigger as the workspace switcher, with an All row. Assigning those fields on a timer or entry keeps the `EntryMetaChips`. Do not use a native `<select>`. Rows stay left-aligned and highlight on hover.
+- A page filter for project, client, or activity uses `Select`, the same bordered trigger as the workspace switcher, with an All row. Report filters for workspace, project, client, and activity use `MultiSelect` (empty means all, the All row clears). Assigning those fields on a timer or entry keeps the `EntryMetaChips`. Do not use a native `<select>`. Rows stay left-aligned and highlight on hover.
 - A panel, chart, or table sits on `bg-card` with a border. A border alone on the page background is not enough.
 
 ## Product interaction (mandatory)

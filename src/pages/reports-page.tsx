@@ -1,16 +1,19 @@
-import { InformationCircleIcon } from '@heroicons/react/24/outline'
+import { ChevronDownIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
 import { useQuery } from '@tanstack/react-query'
-import { endOfMonth, format, startOfMonth } from 'date-fns'
+import { differenceInCalendarDays, endOfMonth, format, parseISO, startOfMonth } from 'date-fns'
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
+import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-select'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
@@ -22,9 +25,10 @@ import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import type { SupportRequest, Task, TimeEntry } from '@/types'
 
-import { downloadReportPdf } from './export-report-pdf'
+import { downloadChartReportPdf, downloadReportPdf } from './export-report-pdf'
+import { NarrativeReportPrint } from './narrative-report-print'
 
-const ALL = 'all'
+const MAX_NARRATIVE_DAYS = 31
 const NO_CLIENT = '__none__'
 const NO_PROJECT = '__none_project__'
 const NO_ACTIVITY = '__none_activity__'
@@ -38,6 +42,7 @@ type Share = {
   clientId: string
   projectId: string
   activityId: string
+  activity: string
   seconds: number
   amount: number
   currency: string
@@ -63,10 +68,74 @@ type WorkRow = {
   money: Money
 }
 
-export type GroupBy = 'client-project' | 'project-client' | 'project-client-activity' | 'project' | 'client' | 'requester' | 'activity'
+export type GroupBy =
+  | 'client-project'
+  | 'client-activity'
+  | 'project-client'
+  | 'project-activity'
+  | 'project-client-activity'
+  | 'project'
+  | 'client'
+  | 'requester'
+  | 'activity'
 
 const GROUP_KEY = 'report-group-by'
-const GROUP_OPTIONS: GroupBy[] = ['client-project', 'project-client', 'project-client-activity', 'project', 'client', 'requester', 'activity']
+const GROUP_OPTIONS: GroupBy[] = [
+  'client-project',
+  'client-activity',
+  'project-client',
+  'project-activity',
+  'project-client-activity',
+  'project',
+  'client',
+  'requester',
+  'activity',
+]
+
+function activityGroupKey(id: string, name: string) {
+  return id === NO_ACTIVITY ? NO_ACTIVITY : name
+}
+
+function matchesIds(selected: string[], id: string) {
+  return selected.length === 0 || selected.includes(id)
+}
+
+function matchesActivityFilters(filters: string[], id: string | null | undefined, name: string) {
+  if (filters.length === 0) return true
+  const key = id ?? NO_ACTIVITY
+  const group = activityGroupKey(key, name)
+  return filters.some((filter) => filter === key || filter === group)
+}
+
+function matchesClients(selected: string[], linked: string[]) {
+  if (selected.length === 0) return true
+  if (linked.length === 0) return selected.includes(NO_CLIENT)
+  return linked.some((id) => selected.includes(id))
+}
+
+function clientIdsFor(selected: string[], ids: string[]) {
+  const base = ids.length === 0 ? [NO_CLIENT] : ids
+  if (selected.length === 0) return base
+  return base.filter((id) => selected.includes(id))
+}
+
+function toggleId(selected: string[], id: string) {
+  return selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]
+}
+
+function activityChosen(
+  filters: string[],
+  groupKey: string,
+  label: string,
+  activities: { id: string; name: string }[],
+) {
+  if (filters.length === 0) return false
+  if (filters.includes(groupKey)) return true
+  return filters.some((filter) => {
+    const activity = activities.find((row) => row.id === filter)
+    return activity ? activityGroupKey(activity.id, activity.name) === groupKey : filter === label
+  })
+}
 
 function readGroupBy(): GroupBy {
   try {
@@ -76,6 +145,25 @@ function readGroupBy(): GroupBy {
     /* ignore private mode */
   }
   return 'project-client'
+}
+
+function formatClock(seconds: number) {
+  const total = Math.max(0, Math.round(seconds))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const rest = total % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
+}
+
+async function failureMessage(err: unknown) {
+  const context =
+    err && typeof err === 'object' && 'context' in err ? (err as { context?: { json?: () => Promise<unknown> } }).context : undefined
+  if (context && typeof context.json === 'function') {
+    const body = (await context.json().catch(() => null)) as { error?: unknown } | null
+    if (body && typeof body.error === 'string' && body.error) return body.error
+  }
+  if (err instanceof Error && err.message) return err.message
+  return 'Try again.'
 }
 
 function storeGroupBy(value: GroupBy) {
@@ -114,11 +202,15 @@ export function ReportPage() {
   const catalog = useCatalog()
   const [from, setFrom] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [to, setTo] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'))
-  const [projectId, setProjectId] = useState('')
-  const [clientId, setClientId] = useState('')
-  const [activityId, setActivityId] = useState('')
+  const [workspaceIds, setWorkspaceIds] = useState<string[]>([])
+  const [projectIds, setProjectIds] = useState<string[]>([])
+  const [clientIds, setClientIds] = useState<string[]>([])
+  const [activityIds, setActivityIds] = useState<string[]>([])
   const [groupBy, setGroupBy] = useState<GroupBy>(readGroupBy)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [generatingReport, setGeneratingReport] = useState(false)
+  const narrativeRangeDays = differenceInCalendarDays(parseISO(to), parseISO(from)) + 1
+  const narrativeRangeTooLong = narrativeRangeDays > MAX_NARRATIVE_DAYS
 
   const entries = useQuery({
     queryKey: qk.entries(workspaceId, `${from}-${to}`),
@@ -126,7 +218,7 @@ export function ReportPage() {
       let q = supabase
         .from('time_entries')
         .select(
-          '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_requests(request_id, request:requests(id, task_number, request, requester, project_id, activity_id, project:projects(name), request_clients(client_id))), time_entry_tasks(task_id, task:tasks(id, task_number, task, requester, project_id, activity_id, project:projects(name), task_clients(client_id)))',
+          '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_requests(request_id, request:requests(id, task_number, request, requester, status, project_id, activity_id, project:projects(name), request_clients(client_id))), time_entry_tasks(task_id, task:tasks(id, task_number, task, requester, status, project_id, activity_id, project:projects(name), task_clients(client_id)))',
         )
         .gte('started_at', `${from}T00:00:00`)
         .lte('started_at', `${to}T23:59:59`)
@@ -168,13 +260,53 @@ export function ReportPage() {
     },
   })
 
+  const scopeWorkspaces = useMemo(
+    () => (isAll ? workspaces : workspaces.filter((workspace) => workspace.id === workspaceId)),
+    [isAll, workspaceId, workspaces],
+  )
+  const activeWorkspaceIds = useMemo(
+    () => workspaceIds.filter((id) => scopeWorkspaces.some((workspace) => workspace.id === id)),
+    [scopeWorkspaces, workspaceIds],
+  )
+
+  function inWorkspace(id: string) {
+    return activeWorkspaceIds.length === 0 || activeWorkspaceIds.includes(id)
+  }
+
+  function chooseWorkspaces(next: string[]) {
+    const allow = (id: string | undefined) => next.length === 0 || (id != null && next.includes(id))
+    setWorkspaceIds(next)
+    setProjectIds((current) =>
+      current.filter((id) => id === NO_PROJECT || allow(catalog.allProjects.find((project) => project.id === id)?.workspace_id)),
+    )
+    setClientIds((current) =>
+      current.filter((id) => id === NO_CLIENT || allow(catalog.clients.find((client) => client.id === id)?.workspace_id)),
+    )
+    setActivityIds((current) =>
+      current.filter((id) => {
+        if (id === NO_ACTIVITY) return true
+        const activity = catalog.activities.find((row) => row.id === id)
+        if (!activity) return true
+        return allow(activity.workspace_id)
+      }),
+    )
+  }
+
   const report = useMemo(() => {
     const included: TimeEntry[] = []
     const shares: Share[] = []
 
+    function lookupActivityName(id: string | null | undefined, fallback?: string | null) {
+      const key = id ?? NO_ACTIVITY
+      if (key === NO_ACTIVITY) return 'No activity'
+      return catalog.activities.find((activity) => activity.id === key)?.name ?? fallback ?? 'Unknown activity'
+    }
+
     for (const entry of entries.data ?? []) {
-      if (projectId && (entry.project_id ?? NO_PROJECT) !== projectId) continue
-      if (activityId && (entry.activity_id ?? NO_ACTIVITY) !== activityId) continue
+      if (!matchesIds(activeWorkspaceIds, entry.workspace_id)) continue
+      if (!matchesIds(projectIds, entry.project_id ?? NO_PROJECT)) continue
+      const activityName = lookupActivityName(entry.activity_id, entry.activity?.name)
+      if (!matchesActivityFilters(activityIds, entry.activity_id, activityName)) continue
       const links = catalog.projectClients.filter((pc) => pc.project_id === entry.project_id)
       const seconds = entry.duration_seconds ?? 0
       const project = entry.project
@@ -190,6 +322,7 @@ export function ReportPage() {
           clientId: id,
           projectId: entry.project_id ?? NO_PROJECT,
           activityId: entry.activity_id ?? NO_ACTIVITY,
+          activity: activityName,
           seconds: shareSeconds,
           amount,
           currency,
@@ -213,7 +346,7 @@ export function ReportPage() {
         for (const share of allocated) push(share.clientId, share.seconds)
       }
 
-      const visible = clientId ? next.filter((share) => share.clientId === clientId) : next
+      const visible = clientIds.length === 0 ? next : next.filter((share) => clientIds.includes(share.clientId))
       if (visible.length === 0) continue
       included.push(entry)
       shares.push(...visible)
@@ -251,6 +384,8 @@ export function ReportPage() {
         'Unknown activity'
       )
     }
+
+    for (const share of shares) share.activity = nameFor(share.activityId, 'activity')
 
     function colorFor(id: string, index: number) {
       return catalog.allProjects.find((project) => project.id === id)?.color ?? PALETTE[index % PALETTE.length]!
@@ -305,19 +440,14 @@ export function ReportPage() {
       .sort((a, b) => a.name.localeCompare(b.name))
 
     const filteredRequests = (requests.data ?? []).filter((req) => {
-      if (projectId && (req.project_id ?? NO_PROJECT) !== projectId) return false
-      if (activityId && (req.activity_id ?? NO_ACTIVITY) !== activityId) return false
-      const linked = displayClientIds(req, catalog)
-      if (!clientId) return true
-      if (clientId === NO_CLIENT) return linked.length === 0
-      return linked.includes(clientId)
+      if (!matchesIds(activeWorkspaceIds, req.workspace_id)) return false
+      if (!matchesIds(projectIds, req.project_id ?? NO_PROJECT)) return false
+      if (!matchesActivityFilters(activityIds, req.activity_id, lookupActivityName(req.activity_id, req.activity?.name))) return false
+      return matchesClients(clientIds, displayClientIds(req, catalog))
     })
 
     function requestClientIds(req: SupportRequest) {
-      const ids = displayClientIds(req, catalog)
-      if (clientId === NO_CLIENT) return ids.length === 0 ? [NO_CLIENT] : []
-      if (clientId) return ids.filter((id) => id === clientId)
-      return ids.length === 0 ? [NO_CLIENT] : ids
+      return clientIdsFor(clientIds, displayClientIds(req, catalog))
     }
 
     function requesterId(name: string | null | undefined) {
@@ -354,7 +484,7 @@ export function ReportPage() {
               } as SupportRequest)
           const current = totals.get(id) ?? {
             id,
-            label: req ? `${requestCode(req.task_number)} · ${req.request}` : 'Request',
+            label: req ? `${requestCode(req.task_number, workspaces.find((workspace) => workspace.id === entry.workspace_id)?.id_code ?? '')} · ${req.request}` : 'Request',
             project: nameFor(projectIdForRequest, 'project'),
             projectId: projectIdForRequest,
             activity: nameFor(activityIdForRequest, 'activity'),
@@ -374,19 +504,14 @@ export function ReportPage() {
     }
 
     const filteredTasks = (tasks.data ?? []).filter((task) => {
-      if (projectId && (task.project_id ?? NO_PROJECT) !== projectId) return false
-      if (activityId && (task.activity_id ?? NO_ACTIVITY) !== activityId) return false
-      const linked = displayClientIds(task, catalog)
-      if (!clientId) return true
-      if (clientId === NO_CLIENT) return linked.length === 0
-      return linked.includes(clientId)
+      if (!matchesIds(activeWorkspaceIds, task.workspace_id)) return false
+      if (!matchesIds(projectIds, task.project_id ?? NO_PROJECT)) return false
+      if (!matchesActivityFilters(activityIds, task.activity_id, lookupActivityName(task.activity_id, task.activity?.name))) return false
+      return matchesClients(clientIds, displayClientIds(task, catalog))
     })
 
     function taskClientIds(task: Task) {
-      const ids = displayClientIds(task, catalog)
-      if (clientId === NO_CLIENT) return ids.length === 0 ? [NO_CLIENT] : []
-      if (clientId) return ids.filter((id) => id === clientId)
-      return ids.length === 0 ? [NO_CLIENT] : ids
+      return clientIdsFor(clientIds, displayClientIds(task, catalog))
     }
 
     function taskHours(rows: TimeEntry[], visibleShares: Share[]) {
@@ -414,7 +539,7 @@ export function ReportPage() {
               } as Task)
           const current = totals.get(id) ?? {
             id,
-            label: task ? `${taskCode(task.task_number)} · ${task.task}` : 'Task',
+            label: task ? `${taskCode(task.task_number, workspaces.find((workspace) => workspace.id === entry.workspace_id)?.id_code ?? '')} · ${task.task}` : 'Task',
             project: nameFor(projectIdForTask, 'project'),
             projectId: projectIdForTask,
             activity: nameFor(activityIdForTask, 'activity'),
@@ -465,21 +590,33 @@ export function ReportPage() {
       shares,
       requestTime: requestHours(included, shares),
       taskTime: taskHours(included, shares),
+      included,
     }
   }, [
-    activityId,
+    activeWorkspaceIds,
+    activityIds,
     catalog.activities,
     catalog.allProjects,
     catalog.clients,
     catalog.projectClients,
-    clientId,
+    clientIds,
     entries.data,
-    projectId,
+    projectIds,
     requests.data,
     tasks.data,
+    workspaces,
   ])
 
   const loading = entries.isPending || requests.isPending || tasks.isPending || catalog.loading
+  const reportWorkspaceName = useMemo(() => {
+    const chosen =
+      activeWorkspaceIds.length === 0
+        ? scopeWorkspaces
+        : scopeWorkspaces.filter((workspace) => activeWorkspaceIds.includes(workspace.id))
+    if (chosen.length === 1) return chosen[0]?.name ?? 'Workspace'
+    if (isAll && chosen.length === workspaces.length) return 'All workspaces'
+    return chosen.map((workspace) => workspace.name).join(', ') || 'All workspaces'
+  }, [activeWorkspaceIds, isAll, scopeWorkspaces, workspaces.length])
 
   function exportCsv() {
     const header = ['Type', 'Client', 'Project', 'Activity', 'Hours', 'Amount', 'Currency']
@@ -549,15 +686,163 @@ export function ReportPage() {
     URL.revokeObjectURL(url)
   }
 
+  function narrativeCsv() {
+    const header = [
+      'started_at',
+      'stopped_at',
+      'duration',
+      'hours',
+      'description',
+      'client',
+      'project',
+      'activity',
+      'task_id',
+      'task_number',
+      'task',
+      'task_requester',
+      'task_status',
+      'request_id',
+      'request_number',
+      'request',
+      'request_requester',
+      'request_status',
+      'billable',
+      'entry_id',
+    ]
+    const cell = (value: string) => `"${value.replaceAll('"', '""')}"`
+    const lines = [header.join(',')]
+    const sharesByEntry = new Map<string, Share[]>()
+    for (const share of report.shares) {
+      const rows = sharesByEntry.get(share.entry.id) ?? []
+      rows.push(share)
+      sharesByEntry.set(share.entry.id, rows)
+    }
+    for (const entry of report.included) {
+      const shares = sharesByEntry.get(entry.id) ?? []
+      const clients = [
+        ...new Set(
+          shares
+            .filter((share) => share.clientId !== NO_CLIENT)
+            .map((share) => clientName(share.clientId))
+            .filter((name) => name && name !== 'No client'),
+        ),
+      ]
+      const activity =
+        (entry.activity_id ?? NO_ACTIVITY) === NO_ACTIVITY
+          ? ''
+          : shares.find((share) => share.activity)?.activity ?? entry.activity?.name ?? ''
+      const tasks = [...(entry.time_entry_tasks ?? [])].sort(
+        (a, b) => (a.task?.task_number ?? 0) - (b.task?.task_number ?? 0),
+      )
+      const requests = [...(entry.time_entry_requests ?? [])].sort(
+        (a, b) => (a.request?.task_number ?? 0) - (b.request?.task_number ?? 0),
+      )
+      const seconds = entry.duration_seconds ?? 0
+      lines.push(
+        [
+          entry.started_at,
+          entry.stopped_at ?? '',
+          formatClock(seconds),
+          (seconds / 3600).toFixed(2),
+          entry.description ?? '',
+          clients.join('; '),
+          entry.project?.name ?? '',
+          activity,
+          tasks.map((link) => link.task_id).join('; '),
+          tasks.map((link) => (link.task ? taskCode(link.task.task_number, workspaces.find((workspace) => workspace.id === entry.workspace_id)?.id_code ?? '') : '')).join('; '),
+          tasks.map((link) => link.task?.task ?? '').join('; '),
+          tasks.map((link) => link.task?.requester ?? '').join('; '),
+          tasks.map((link) => link.task?.status ?? '').join('; '),
+          requests.map((link) => link.request_id).join('; '),
+          requests.map((link) => (link.request ? requestCode(link.request.task_number, workspaces.find((workspace) => workspace.id === entry.workspace_id)?.id_code ?? '') : '')).join('; '),
+          requests.map((link) => link.request?.request ?? '').join('; '),
+          requests.map((link) => link.request?.requester ?? '').join('; '),
+          requests.map((link) => link.request?.status ?? '').join('; '),
+          String(entry.billable),
+          entry.id,
+        ]
+          .map((value) => cell(value))
+          .join(','),
+      )
+    }
+    return lines.join('\n')
+  }
+
+  async function generateNarrative(layout: 'text' | 'full' = 'text') {
+    if (narrativeRangeTooLong) {
+      toast({
+        tone: 'error',
+        title: 'Could not generate the report',
+        description: `Pick a range of ${MAX_NARRATIVE_DAYS} days or less.`,
+      })
+      return
+    }
+    if (report.included.length === 0) {
+      toast({
+        tone: 'error',
+        title: 'Could not generate the report',
+        description: 'No time entries in this range.',
+      })
+      return
+    }
+    setGeneratingReport(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-report', {
+        body: {
+          csv: narrativeCsv(),
+          from,
+          to,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          today: format(new Date(), 'yyyy-MM-dd'),
+          workspace_id: activeWorkspaceIds.length === 1 ? activeWorkspaceIds[0] : isAll ? null : workspaceId,
+        },
+      })
+      if (error) throw new Error(await failureMessage(error))
+      if (data?.error) throw new Error(String(data.error))
+      const markdown = String(data?.markdown ?? '').trim()
+      if (!markdown) throw new Error('The report came back empty.')
+      const workspaceName = reportWorkspaceName
+      if (layout === 'full') {
+        await downloadChartReportPdf(
+          {
+            from,
+            to,
+            workspaceName,
+            report,
+            groupBy,
+            projectColor,
+            clientName,
+            narrative: markdown,
+          },
+          `miravize_full_report_${from}_to_${to}.pdf`,
+        )
+      } else {
+        await downloadReportPdf(
+          <NarrativeReportPrint workspaceName={workspaceName} markdown={markdown} />,
+          `miravize_work_report_${from}_to_${to}.pdf`,
+        )
+      }
+    } catch (error) {
+      toast({
+        tone: 'error',
+        title: 'Could not generate the report',
+        description: error instanceof Error ? error.message : 'Something went wrong.',
+      })
+    } finally {
+      setGeneratingReport(false)
+    }
+  }
+
   async function exportPdf() {
     setExportingPdf(true)
     try {
-      await downloadReportPdf(
+      await downloadChartReportPdf(
         {
           from,
           to,
-          workspaceName: isAll ? 'All workspaces' : workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? 'Workspace',
+          workspaceName: reportWorkspaceName,
           report,
+          groupBy,
           projectColor,
           clientName,
         },
@@ -577,6 +862,75 @@ export function ReportPage() {
   const projectColor = (id: string) => catalog.allProjects.find((project) => project.id === id)?.color
   const clientName = (id: string) =>
     id === NO_CLIENT ? 'No client' : catalog.clients.find((client) => client.id === id)?.name ?? 'Unknown client'
+  const workspaceName = (id: string) => workspaces.find((workspace) => workspace.id === id)?.name
+
+  function tagged(name: string, workspaceId: string, many: boolean) {
+    if (!many) return name
+    const workspace = workspaceName(workspaceId)
+    return workspace ? `${name} · ${workspace}` : name
+  }
+
+  const workspaceOptions: MultiSelectOption[] = scopeWorkspaces.map((workspace) => ({
+    value: workspace.id,
+    label: workspace.name,
+    leading: <WorkspaceMark icon={workspace.icon} />,
+  }))
+  const projectChoices = catalog.projects.filter((project) => inWorkspace(project.workspace_id))
+  const clientChoices = catalog.clients.filter((client) => inWorkspace(client.workspace_id))
+  const activityChoices = catalog.activities.filter((activity) => inWorkspace(activity.workspace_id))
+  const manyProjects = new Set(projectChoices.map((project) => project.workspace_id)).size > 1
+  const manyClients = new Set(clientChoices.map((client) => client.workspace_id)).size > 1
+  const manyActivities = new Set(activityChoices.map((activity) => activity.workspace_id)).size > 1
+  const projectOptions: MultiSelectOption[] = [
+    { value: NO_PROJECT, label: 'No project' },
+    ...projectChoices.map((project) => ({
+      value: project.id,
+      label: tagged(project.name, project.workspace_id, manyProjects),
+      leading: <span className="size-2 shrink-0 rounded-sm" style={{ background: project.color }} aria-hidden="true" />,
+    })),
+  ]
+  const clientOptions: MultiSelectOption[] = [
+    { value: NO_CLIENT, label: 'No client' },
+    ...clientChoices.map((client) => ({
+      value: client.id,
+      label: tagged(client.name, client.workspace_id, manyClients),
+    })),
+  ]
+  const activityOptions: MultiSelectOption[] = [
+    { value: NO_ACTIVITY, label: 'No activity' },
+    ...activityChoices.map((activity) => ({
+      value: activity.id,
+      label: tagged(
+        activity.client_id
+          ? `${activity.name} · ${catalog.clients.find((client) => client.id === activity.client_id)?.name ?? ''}`
+          : activity.name,
+        activity.workspace_id,
+        manyActivities,
+      ),
+    })),
+  ]
+  for (const id of activityIds) {
+    if (!activityOptions.some((option) => option.value === id)) activityOptions.push({ value: id, label: id })
+  }
+
+  function toggleActivity(current: string[], id: string) {
+    const groupOf = (filter: string) => {
+      if (filter === NO_ACTIVITY) return NO_ACTIVITY
+      const activity = catalog.activities.find((row) => row.id === filter)
+      return activity ? activityGroupKey(activity.id, activity.name) : filter
+    }
+    const group = groupOf(id)
+    return current.some((filter) => groupOf(filter) === group)
+      ? current.filter((filter) => groupOf(filter) !== group)
+      : [...current, id]
+  }
+
+  function lineSelected(line: { filter: Line['filter']; filterId: string; label: string }) {
+    if (line.filter === 'project') return projectIds.includes(line.filterId)
+    if (line.filter === 'client') return clientIds.includes(line.filterId)
+    if (line.filter === 'activity') return activityChosen(activityIds, line.filterId, line.label, catalog.activities)
+    return false
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
@@ -593,59 +947,45 @@ export function ReportPage() {
             }}
           />
         </Filter>
+        <Filter label="Workspace">
+          <MultiSelect
+            label="Workspace"
+            values={activeWorkspaceIds}
+            onChange={chooseWorkspaces}
+            options={workspaceOptions}
+            allLabel="All workspaces"
+            noun="workspaces"
+          />
+        </Filter>
         <Filter label="Project">
-          <Select value={projectId || ALL} onValueChange={(value) => setProjectId(value === ALL ? '' : value)}>
-            <SelectTrigger aria-label="Project">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All projects</SelectItem>
-              {projectId === NO_PROJECT ? <SelectItem value={NO_PROJECT}>No project</SelectItem> : null}
-              {catalog.projects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  <span className="flex items-center gap-2">
-                    <span className="size-2 shrink-0 rounded-sm" style={{ background: project.color }} aria-hidden="true" />
-                    {project.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelect
+            label="Project"
+            values={projectIds}
+            onChange={setProjectIds}
+            options={projectOptions}
+            allLabel="All projects"
+            noun="projects"
+          />
         </Filter>
         <Filter label="Client">
-          <Select value={clientId || ALL} onValueChange={(value) => setClientId(value === ALL ? '' : value)}>
-            <SelectTrigger aria-label="Client">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All clients</SelectItem>
-              {clientId === NO_CLIENT ? <SelectItem value={NO_CLIENT}>No client</SelectItem> : null}
-              {catalog.clients.map((client) => (
-                <SelectItem key={client.id} value={client.id}>
-                  {client.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelect
+            label="Client"
+            values={clientIds}
+            onChange={setClientIds}
+            options={clientOptions}
+            allLabel="All clients"
+            noun="clients"
+          />
         </Filter>
         <Filter label="Activity">
-          <Select value={activityId || ALL} onValueChange={(value) => setActivityId(value === ALL ? '' : value)}>
-            <SelectTrigger aria-label="Activity">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All activities</SelectItem>
-              {activityId === NO_ACTIVITY ? <SelectItem value={NO_ACTIVITY}>No activity</SelectItem> : null}
-              {catalog.activities.map((activity) => (
-                <SelectItem key={activity.id} value={activity.id}>
-                  {activity.name}
-                  {activity.client_id
-                    ? ` · ${catalog.clients.find((client) => client.id === activity.client_id)?.name ?? ''}`
-                    : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelect
+            label="Activity"
+            values={activityIds}
+            onChange={setActivityIds}
+            options={activityOptions}
+            allLabel="All activities"
+            noun="activities"
+          />
         </Filter>
         <div className="ml-auto flex gap-2">
           <Button
@@ -655,9 +995,52 @@ export function ReportPage() {
           >
             Export CSV
           </Button>
-          <Button onClick={() => void exportPdf()} disabled={loading || exportingPdf}>
-            {exportingPdf ? 'Exporting PDF' : 'Export PDF'}
-          </Button>
+          <div className="flex">
+            <Button
+              className="rounded-r-none"
+              onClick={() => void exportPdf()}
+              disabled={loading || exportingPdf || generatingReport}
+            >
+              {exportingPdf ? 'Exporting PDF' : generatingReport ? 'Generating report' : 'Export PDF'}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  className="rounded-l-none border-l border-primary-foreground/30 px-2"
+                  aria-label="More report exports"
+                  disabled={loading || exportingPdf || generatingReport}
+                >
+                  <ChevronDownIcon aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72" filter={false}>
+                <DropdownMenuItem
+                  className="items-start"
+                  disabled={narrativeRangeTooLong}
+                  onSelect={() => void generateNarrative('text')}
+                >
+                  <span className="flex flex-col items-start gap-0.5">
+                    <span>Written Report</span>
+                    <span className="text-xs text-muted-foreground">
+                      {narrativeRangeTooLong ? `Max ${MAX_NARRATIVE_DAYS} days` : 'Detailed summary of work performed'}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="items-start"
+                  disabled={narrativeRangeTooLong}
+                  onSelect={() => void generateNarrative('full')}
+                >
+                  <span className="flex flex-col items-start gap-0.5">
+                    <span>Complete Report</span>
+                    <span className="text-xs text-muted-foreground">
+                      {narrativeRangeTooLong ? `Max ${MAX_NARRATIVE_DAYS} days` : 'Charts, statistics, and written summary'}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
@@ -693,20 +1076,22 @@ export function ReportPage() {
             <Donut
               title="Hours by project"
               slices={report.projects}
-              selectedId={projectId}
-              onSelect={(id) => setProjectId(id === projectId ? '' : id)}
+              selected={(slice) => projectIds.includes(slice.id)}
+              onSelect={(id) => setProjectIds((current) => toggleId(current, id))}
             />
             <Donut
               title="Hours by client"
               slices={report.clients}
-              selectedId={clientId}
-              onSelect={(id) => setClientId(id === clientId ? '' : id)}
+              selected={(slice) => clientIds.includes(slice.id)}
+              onSelect={(id) => setClientIds((current) => toggleId(current, id))}
             />
             <Donut
               title="Hours by activity"
               slices={report.activities}
-              selectedId={activityId}
-              onSelect={(id) => setActivityId(id === activityId ? '' : id)}
+              selected={(slice) =>
+                activityIds.includes(slice.id) || activityIds.includes(activityGroupKey(slice.id, slice.label))
+              }
+              onSelect={(id) => setActivityIds((current) => toggleActivity(current, id))}
             />
           </>
         )}
@@ -721,18 +1106,17 @@ export function ReportPage() {
         }}
         projectColor={projectColor}
         clientName={clientName}
-        projectId={projectId}
-        clientId={clientId}
-        activityId={activityId}
-        onProject={(id) => setProjectId(id === projectId ? '' : id)}
-        onClient={(id) => setClientId(id === clientId ? '' : id)}
-        onActivity={(id) => setActivityId(id === activityId ? '' : id)}
+        lineSelected={lineSelected}
+        onProject={(id) => setProjectIds((current) => toggleId(current, id))}
+        onClient={(id) => setClientIds((current) => toggleId(current, id))}
+        onActivity={(id) => setActivityIds((current) => toggleActivity(current, id))}
         loading={loading}
       />
 
       {isAll ? (
         <p className="text-xs text-muted-foreground print:hidden">
-          Showing memberships across {workspaces.length} workspaces.
+          Showing memberships across {activeWorkspaceIds.length === 0 ? workspaces.length : activeWorkspaceIds.length}{' '}
+          {activeWorkspaceIds.length === 1 ? 'workspace' : 'workspaces'}.
         </p>
       ) : null}
     </div>
@@ -787,14 +1171,14 @@ export function donutSlicePath(cx: number, cy: number, outer: number, inner: num
 function Donut({
   title,
   slices,
-  selectedId,
+  selected,
   onSelect,
   formatValue = formatHours,
   emptyLabel = 'No hours.',
 }: {
   title: string
   slices: Bucket[]
-  selectedId: string
+  selected: (slice: Bucket) => boolean
   onSelect: (id: string) => void
   formatValue?: (value: number) => string
   emptyLabel?: string
@@ -873,10 +1257,10 @@ function Donut({
               <li key={slice.id}>
                 <button
                   type="button"
-                  aria-pressed={selectedId === slice.id}
+                  aria-pressed={selected(slice)}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
-                    (hoveredId === slice.id || selectedId === slice.id) && 'bg-muted',
+                    (hoveredId === slice.id || selected(slice)) && 'bg-muted',
                     hoveredId && hoveredId !== slice.id && 'opacity-50',
                   )}
                   onMouseEnter={() => setHoveredId(slice.id)}
@@ -939,7 +1323,9 @@ function ShareBar({ seconds, total, color }: { seconds: number; total: number; c
 
 export const GROUP_LABEL: Record<GroupBy, string> = {
   'client-project': 'Client / project',
+  'client-activity': 'Client / activity',
   'project-client': 'Project / clients',
+  'project-activity': 'Project / activity',
   'project-client-activity': 'Project / clients / activity',
   project: 'Project',
   client: 'Client',
@@ -1013,9 +1399,7 @@ function ReportTable({
   onGroupBy,
   projectColor,
   clientName,
-  projectId,
-  clientId,
-  activityId,
+  lineSelected,
   onProject,
   onClient,
   onActivity,
@@ -1040,9 +1424,7 @@ function ReportTable({
   onGroupBy: (value: GroupBy) => void
   projectColor: (id: string) => string | undefined
   clientName: (id: string) => string
-  projectId: string
-  clientId: string
-  activityId: string
+  lineSelected: (line: Pick<Line, 'filter' | 'filterId' | 'label'>) => boolean
   onProject: (id: string) => void
   onClient: (id: string) => void
   onActivity: (id: string) => void
@@ -1080,7 +1462,9 @@ function ReportTable({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="client-project">Client / project</SelectItem>
+              <SelectItem value="client-activity">Client / activity</SelectItem>
               <SelectItem value="project-client">Project / clients</SelectItem>
+              <SelectItem value="project-activity">Project / activity</SelectItem>
               <SelectItem value="project-client-activity">Project / clients / activity</SelectItem>
               <SelectItem value="project">Project</SelectItem>
               <SelectItem value="client">Client</SelectItem>
@@ -1114,9 +1498,7 @@ function ReportTable({
               <ReportRows
                 lines={rows}
                 totalSeconds={report.totalSeconds}
-                projectId={projectId}
-                clientId={clientId}
-                activityId={activityId}
+                lineSelected={lineSelected}
                 onProject={onProject}
                 onClient={onClient}
                 onActivity={onActivity}
@@ -1147,18 +1529,14 @@ function ReportTable({
 function ReportRows({
   lines,
   totalSeconds,
-  projectId,
-  clientId,
-  activityId,
+  lineSelected,
   onProject,
   onClient,
   onActivity,
 }: {
   lines: Line[]
   totalSeconds: number
-  projectId: string
-  clientId: string
-  activityId: string
+  lineSelected: (line: Pick<Line, 'filter' | 'filterId' | 'label'>) => boolean
   onProject: (id: string) => void
   onClient: (id: string) => void
   onActivity: (id: string) => void
@@ -1168,9 +1546,7 @@ function ReportRows({
       <ReportLine
         line={line}
         totalSeconds={totalSeconds}
-        projectId={projectId}
-        clientId={clientId}
-        activityId={activityId}
+        lineSelected={lineSelected}
         onProject={onProject}
         onClient={onClient}
         onActivity={onActivity}
@@ -1179,9 +1555,7 @@ function ReportRows({
         <ReportRows
           lines={line.children}
           totalSeconds={totalSeconds}
-          projectId={projectId}
-          clientId={clientId}
-          activityId={activityId}
+          lineSelected={lineSelected}
           onProject={onProject}
           onClient={onClient}
           onActivity={onActivity}
@@ -1194,27 +1568,20 @@ function ReportRows({
 function ReportLine({
   line,
   totalSeconds,
-  projectId,
-  clientId,
-  activityId,
+  lineSelected,
   onProject,
   onClient,
   onActivity,
 }: {
   line: Line
   totalSeconds: number
-  projectId: string
-  clientId: string
-  activityId: string
+  lineSelected: (line: Pick<Line, 'filter' | 'filterId' | 'label'>) => boolean
   onProject: (id: string) => void
   onClient: (id: string) => void
   onActivity: (id: string) => void
 }) {
   const onSelect = line.filter === 'project' ? onProject : line.filter === 'client' ? onClient : line.filter === 'activity' ? onActivity : null
-  const selected =
-    (line.filter === 'project' && projectId === line.filterId) ||
-    (line.filter === 'client' && clientId === line.filterId) ||
-    (line.filter === 'activity' && activityId === line.filterId)
+  const selected = lineSelected(line)
   return (
     <TableRow
       aria-pressed={onSelect ? selected : undefined}
@@ -1267,8 +1634,12 @@ export function buildLines(
   clientName: (id: string) => string,
 ) {
   if (groupBy === 'client-project') return clientProjectLines(report, projectColor, clientName)
-  if (groupBy === 'project-client' || groupBy === 'project-client-activity') {
-    return projectTree(report, projectColor, clientName, groupBy === 'project-client-activity')
+  if (groupBy === 'client-activity') return clientActivityLines(report, clientName)
+  if (groupBy === 'project-client' || groupBy === 'project-client-activity' || groupBy === 'project-activity') {
+    return projectTree(report, projectColor, clientName, {
+      withClients: groupBy !== 'project-activity',
+      withActivity: groupBy !== 'project-client',
+    })
   }
   return flatLines(report, groupBy, clientName)
 }
@@ -1356,10 +1727,94 @@ function clientProjectLines(
     .sort((a, b) => a.label.localeCompare(b.label))
 }
 
+function clientActivityLines(
+  report: {
+    clientSplits: ClientSplit[]
+    shares: Share[]
+    requestTime: WorkRow[]
+    taskTime: WorkRow[]
+    requestItems: ReportItem[]
+    taskItems: ReportItem[]
+  },
+  clientName: (id: string) => string,
+) {
+  const clients = new Map<string, Line & { activityMap: Map<string, Line> }>()
+  function clientLine(id: string, label: string) {
+    const current = clients.get(id)
+    if (current) return current
+    const line = { ...blankLine(id, id, label, true), filter: 'client' as const, activityMap: new Map<string, Line>() }
+    clients.set(id, line)
+    return line
+  }
+  function activityLine(client: Line & { activityMap: Map<string, Line> }, id: string, label: string) {
+    const key = activityGroupKey(id, label)
+    const current = client.activityMap.get(key)
+    if (current) return current
+    const line = { ...blankLine(`${client.key}-${key}`, key, label, true), depth: 1, filter: 'activity' as const }
+    client.activityMap.set(key, line)
+    return line
+  }
+  for (const client of report.clientSplits) {
+    const line = clientLine(client.id, client.name)
+    line.seconds = client.seconds
+    line.money = { ...client.money }
+  }
+  for (const share of report.shares) {
+    const client = clientLine(share.clientId, clientName(share.clientId))
+    const activity = activityLine(client, share.activityId, share.activity)
+    activity.seconds += share.seconds
+    addMoney(activity.money, share.currency, share.amount)
+  }
+  function count(item: ReportItem, kind: 'request' | 'task') {
+    for (const clientId of item.clientIds) {
+      const client = clientLine(clientId, clientName(clientId))
+      const activity = activityLine(client, item.activityId, item.activity)
+      if (kind === 'request') {
+        client.requests += 1
+        activity.requests += 1
+      } else {
+        client.tasks += 1
+        activity.tasks += 1
+        if (item.done) {
+          client.completed += 1
+          activity.completed += 1
+        }
+      }
+    }
+  }
+  for (const item of report.requestItems) count(item, 'request')
+  for (const item of report.taskItems) count(item, 'task')
+  function hours(row: WorkRow, kind: 'request' | 'task') {
+    const ids = row.clientIds.length > 0 ? row.clientIds : [NO_CLIENT]
+    const share = row.seconds / ids.length
+    for (const clientId of ids) {
+      const client = clientLine(clientId, clientName(clientId))
+      const activity = activityLine(client, row.activityId, row.activity)
+      if (kind === 'request') {
+        client.requestSeconds += share
+        activity.requestSeconds += share
+      } else {
+        client.taskSeconds += share
+        activity.taskSeconds += share
+      }
+    }
+  }
+  for (const row of report.requestTime) hours(row, 'request')
+  for (const row of report.taskTime) hours(row, 'task')
+  return [...clients.values()]
+    .map((client) => ({
+      ...client,
+      children: [...client.activityMap.values()]
+        .filter(hasFigures)
+        .sort((a, b) => b.seconds - a.seconds || a.label.localeCompare(b.label)),
+    }))
+    .filter(hasFigures)
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
 function projectTree(
   report: {
     projects: Bucket[]
-    activities: Bucket[]
     shares: Share[]
     requestTime: WorkRow[]
     taskTime: WorkRow[]
@@ -1368,11 +1823,11 @@ function projectTree(
   },
   projectColor: (id: string) => string | undefined,
   clientName: (id: string) => string,
-  withActivity: boolean,
+  options: { withClients: boolean; withActivity: boolean },
 ) {
+  const { withClients, withActivity } = options
   const projects = new Map<string, Line>()
   const projectNames = new Map(report.projects.map((bucket) => [bucket.id, bucket.label]))
-  const activityNames = new Map(report.activities.map((bucket) => [bucket.id, bucket.label]))
   function child(parent: Line, id: string, label: string, filter: Line['filter'], color?: string) {
     const key = `${parent.key}-${id}`
     const current = parent.children.find((line) => line.key === key)
@@ -1380,6 +1835,9 @@ function projectTree(
     const line = { ...blankLine(key, id, label, true), depth: parent.depth + 1, filter, color }
     parent.children.push(line)
     return line
+  }
+  function activityChild(parent: Line, id: string, label: string) {
+    return child(parent, activityGroupKey(id, label), label, 'activity')
   }
   function projectLine(id: string, label: string) {
     const current = projects.get(id)
@@ -1395,11 +1853,13 @@ function projectTree(
   for (const share of report.shares) {
     const project = projectLine(share.projectId, projectNames.get(share.projectId) ?? 'Unknown project')
     addMoney(project.money, share.currency, share.amount)
-    const client = child(project, share.clientId, clientName(share.clientId), 'client')
-    client.seconds += share.seconds
-    addMoney(client.money, share.currency, share.amount)
+    const parent = withClients ? child(project, share.clientId, clientName(share.clientId), 'client') : project
+    if (withClients) {
+      parent.seconds += share.seconds
+      addMoney(parent.money, share.currency, share.amount)
+    }
     if (withActivity) {
-      const activity = child(client, share.activityId, activityNames.get(share.activityId) ?? 'No activity', 'activity')
+      const activity = activityChild(parent, share.activityId, share.activity)
       activity.seconds += share.seconds
       addMoney(activity.money, share.currency, share.amount)
     }
@@ -1414,10 +1874,14 @@ function projectTree(
       }
     }
     bump(project)
-    for (const clientId of item.clientIds) {
-      const client = child(project, clientId, clientName(clientId), 'client')
-      bump(client)
-      if (withActivity) bump(child(client, item.activityId, item.activity, 'activity'))
+    if (withClients) {
+      for (const clientId of item.clientIds) {
+        const client = child(project, clientId, clientName(clientId), 'client')
+        bump(client)
+        if (withActivity) bump(activityChild(client, item.activityId, item.activity))
+      }
+    } else if (withActivity) {
+      bump(activityChild(project, item.activityId, item.activity))
     }
   }
   for (const item of report.requestItems) count(item, 'request')
@@ -1425,18 +1889,24 @@ function projectTree(
   function hours(row: WorkRow, kind: 'request' | 'task') {
     const ids = row.clientIds.length > 0 ? row.clientIds : [NO_CLIENT]
     const project = projectLine(row.projectId, row.project)
-    const share = row.seconds / ids.length
     if (kind === 'request') project.requestSeconds += row.seconds
     else project.taskSeconds += row.seconds
-    for (const clientId of ids) {
-      const client = child(project, clientId, clientName(clientId), 'client')
-      if (kind === 'request') client.requestSeconds += share
-      else client.taskSeconds += share
-      if (withActivity) {
-        const activity = child(client, row.activityId, row.activity, 'activity')
-        if (kind === 'request') activity.requestSeconds += share
-        else activity.taskSeconds += share
+    if (withClients) {
+      const share = row.seconds / ids.length
+      for (const clientId of ids) {
+        const client = child(project, clientId, clientName(clientId), 'client')
+        if (kind === 'request') client.requestSeconds += share
+        else client.taskSeconds += share
+        if (withActivity) {
+          const activity = activityChild(client, row.activityId, row.activity)
+          if (kind === 'request') activity.requestSeconds += share
+          else activity.taskSeconds += share
+        }
       }
+    } else if (withActivity) {
+      const activity = activityChild(project, row.activityId, row.activity)
+      if (kind === 'request') activity.requestSeconds += row.seconds
+      else activity.taskSeconds += row.seconds
     }
   }
   for (const row of report.requestTime) hours(row, 'request')
@@ -1481,11 +1951,18 @@ function flatLines(
       line.money = amounts.get(bucket.id) ?? {}
     }
   } else if (groupBy === 'activity') {
-    const amounts = moneyBy(report.shares, (share) => share.activityId)
-    for (const bucket of report.activities) {
-      const line = lineFor(bucket.id, bucket.label)
+    const amounts = moneyBy(report.shares, (share) => activityGroupKey(share.activityId, share.activity))
+    const seconds = new Map<string, { label: string; seconds: number }>()
+    for (const share of report.shares) {
+      const key = activityGroupKey(share.activityId, share.activity)
+      const current = seconds.get(key)
+      if (current) current.seconds += share.seconds
+      else seconds.set(key, { label: share.activity, seconds: share.seconds })
+    }
+    for (const [key, bucket] of seconds) {
+      const line = lineFor(key, bucket.label)
       line.seconds = bucket.seconds
-      line.money = amounts.get(bucket.id) ?? {}
+      line.money = amounts.get(key) ?? {}
     }
   } else if (groupBy === 'client') {
     for (const client of report.clientSplits) {
@@ -1496,7 +1973,7 @@ function flatLines(
   }
   function place(item: ReportItem) {
     if (groupBy === 'client') return item.clientIds.map((id) => ({ id, label: clientName(id) }))
-    if (groupBy === 'activity') return [{ id: item.activityId, label: item.activity }]
+    if (groupBy === 'activity') return [{ id: activityGroupKey(item.activityId, item.activity), label: item.activity }]
     if (groupBy === 'requester') return [{ id: item.requesterId, label: item.requester }]
     return [{ id: item.projectId, label: item.project }]
   }
@@ -1515,7 +1992,7 @@ function flatLines(
       const ids = row.clientIds.length > 0 ? row.clientIds : [NO_CLIENT]
       return ids.map((id) => ({ id, label: clientName(id), seconds: row.seconds / ids.length }))
     }
-    if (groupBy === 'activity') return [{ id: row.activityId, label: row.activity, seconds: row.seconds }]
+    if (groupBy === 'activity') return [{ id: activityGroupKey(row.activityId, row.activity), label: row.activity, seconds: row.seconds }]
     if (groupBy === 'requester') return [{ id: row.requesterId, label: row.requester, seconds: row.seconds }]
     return [{ id: row.projectId, label: row.project, seconds: row.seconds }]
   }

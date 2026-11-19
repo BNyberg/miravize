@@ -57,15 +57,17 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
     <>
       <Select value={workspaceId} onValueChange={setWorkspaceId}>
         <SelectTrigger
-          className="sidebar-workspace-trigger mb-4 pl-2"
+          className="sidebar-workspace-trigger mb-4"
           aria-label="Workspace"
         >
-          {isAll || !active ? (
-            <Buildings aria-hidden="true" className="size-4 shrink-0" />
-          ) : (
-            <WorkspaceMark icon={active.icon} />
-          )}
-          <span className="sidebar-fade min-w-0 flex-1 truncate text-left">
+          <span className="sidebar-icon">
+            {isAll || !active ? (
+              <Buildings aria-hidden="true" className="size-4 shrink-0" />
+            ) : (
+              <WorkspaceMark icon={active.icon} />
+            )}
+          </span>
+          <span className="sidebar-fade truncate text-left">
             <SelectValue />
           </span>
         </SelectTrigger>
@@ -92,12 +94,14 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className={({ isActive }) =>
                 cn(
-                  'sidebar-nav-link flex h-9 items-center gap-2 rounded-md px-2 text-sm whitespace-nowrap transition-colors duration-150 hover:bg-muted',
+                  'sidebar-nav-link flex h-9 items-center rounded-md text-sm whitespace-nowrap hover:bg-muted',
                   isActive && 'bg-muted font-medium text-foreground',
                 )
               }
             >
-              <Icon aria-hidden="true" className="size-4 shrink-0" />
+              <span className="sidebar-icon">
+                <Icon aria-hidden="true" className="size-4 shrink-0" />
+              </span>
               <span className="sidebar-fade">{item.label}</span>
             </NavLink>
           )
@@ -176,7 +180,7 @@ function UserFooter({
           <AccountMenuItems onSignOut={onSignOut} onNavigate={onNavigate} />
         </DropdownMenuContent>
       </DropdownMenu>
-      <div className="sidebar-fade flex min-w-0 flex-1 items-center gap-1 px-2">
+      <div className="sidebar-fade min-w-0 gap-1">
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{label}</p>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -209,7 +213,7 @@ export function AppShell() {
     pathname === '/settings' ||
     pathname === '/reports'
   const [bannerSpace, setBannerSpace] = useState(false)
-  const pagePad = bannerSpace ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6' || pathname === '/reports'
+  const pagePad = bannerSpace ? 'px-4 pb-4 md:px-6 md:pb-6' : 'p-4 md:p-6'
   const [open, setOpen] = useState(false)
   const { collapsed, toggle } = useSidebarCollapsed()
 

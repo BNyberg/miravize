@@ -1,7 +1,6 @@
 import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
-  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   PlayIcon,
@@ -21,20 +20,12 @@ import {
 } from 'date-fns'
 import { useEffect, useMemo, useState } from 'react'
 
-import { EntryEditor, EntryMetaChips, clientMode, type Draft, type EntrySaveInput } from '@/components/timer/entry-editor'
+import { EntryEditor, EntryMetaChips, type Draft, type EntrySaveInput } from '@/components/timer/entry-editor'
+import { QuickStartMenu } from '@/components/timer/quick-start-menu'
 import { useTimerSpan } from '@/components/timer/use-timer-span'
 import { WeekGrid } from '@/components/timer/week-grid'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/features/auth/auth-context'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
@@ -47,6 +38,7 @@ import {
   ENTRY_SELECT,
   createEntry,
   deleteEntry,
+  patchEntry,
   startTimer,
   stopTimer,
   updateEntry,
@@ -291,31 +283,6 @@ export function TimerPage() {
         : `${format(rangeStart, 'd MMM')} – ${format(days[days.length - 1]!, 'd MMM')} · W${weekNumber}`
 
   const quickProjects = catalog.projects.filter((project) => (isAll ? true : project.workspace_id === workspaceId))
-  const quickActivityGroups = (() => {
-    const rows = catalog.activities.flatMap((activity) => {
-      const project = quickProjects.find((item) => item.id === activity.project_id)
-      if (!project) return []
-      const client = activity.client_id ? catalog.clients.find((item) => item.id === activity.client_id) : null
-      return [{ activity, project, client }]
-    })
-    const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' })
-    rows.sort((a, b) => byName(a.project.name, b.project.name) || byName(a.activity.name, b.activity.name))
-    const named = new Map<string, { id: string; name: string; rows: typeof rows }>()
-    const unassigned: typeof rows = []
-    for (const row of rows) {
-      if (!row.client) {
-        unassigned.push(row)
-        continue
-      }
-      const group = named.get(row.client.id) ?? { id: row.client.id, name: row.client.name, rows: [] }
-      group.rows.push(row)
-      named.set(row.client.id, group)
-    }
-    const groups = [...named.values()].sort((a, b) => byName(a.name, b.name))
-    if (unassigned.length > 0) groups.push({ id: 'unassigned', name: '', rows: unassigned })
-    return groups
-  })()
-  const showActivitySection = quickActivityGroups.length > 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -468,10 +435,25 @@ export function TimerPage() {
               }}
             />
             <span className="ml-auto font-mono text-sm tabular-nums">{formatDuration(elapsed)}</span>
-            <Button onClick={() => stop.mutate()} disabled={stop.isPending}>
-              <StopIcon aria-hidden="true" />
-              Stop
-            </Button>
+            <div className="flex">
+              <Button
+                className="rounded-r-none"
+                onClick={() => stop.mutate()}
+                disabled={stop.isPending || quickStart.isPending}
+              >
+                <StopIcon aria-hidden="true" />
+                Stop
+              </Button>
+              <QuickStartMenu
+                label="Quick switch"
+                pending={stop.isPending || quickStart.isPending}
+                projects={quickProjects}
+                activities={catalog.activities}
+                clients={catalog.clients}
+                projectClients={catalog.projectClients}
+                onSelect={(input) => quickStart.mutate(input)}
+              />
+            </div>
           </div>
         ) : null}
         {running ? null : (
@@ -508,71 +490,15 @@ export function TimerPage() {
                   Start
                 </Button>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    className="rounded-l-none border-l border-primary-foreground/30 px-2"
-                    aria-label="Quick start"
-                    disabled={quickStart.isPending}
-                  >
-                    <ChevronDownIcon aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuLabel>Projects</DropdownMenuLabel>
-                    {quickProjects.length === 0 ? (
-                      <DropdownMenuItem disabled>No projects yet</DropdownMenuItem>
-                    ) : (
-                      quickProjects.map((project) => (
-                        <DropdownMenuItem
-                          key={project.id}
-                          onSelect={() =>
-                            quickStart.mutate({
-                              workspaceId: project.workspace_id,
-                              projectId: project.id,
-                              billable: project.billable,
-                              description: '',
-                            })
-                          }
-                        >
-                          <span className="size-2 shrink-0" style={{ background: project.color }} aria-hidden="true" />
-                          {project.name}
-                        </DropdownMenuItem>
-                      ))
-                    )}
-                {showActivitySection ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    {quickActivityGroups.map((group) => (
-                      <DropdownMenuGroup key={group.id}>
-                        {group.name ? <DropdownMenuLabel>{group.name}</DropdownMenuLabel> : null}
-                        {group.rows.map(({ activity, project }) => (
-                          <DropdownMenuItem
-                            key={activity.id}
-                            onSelect={() => {
-                              const links = catalog.projectClients.filter((row) => row.project_id === project.id)
-                              const clientIds =
-                                clientMode(links) === 'manual' && activity.client_id ? [activity.client_id] : []
-                              quickStart.mutate({
-                                workspaceId: project.workspace_id,
-                                projectId: project.id,
-                                billable: project.billable,
-                                description: '',
-                                activityId: activity.id,
-                                clientIds,
-                              })
-                            }}
-                          >
-                            <span className="size-2 shrink-0" style={{ background: project.color }} aria-hidden="true" />
-                            <span className="min-w-0 truncate">{activity.name}</span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuGroup>
-                    ))}
-                  </>
-                ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <QuickStartMenu
+                label="Quick start"
+                pending={quickStart.isPending}
+                projects={quickProjects}
+                activities={catalog.activities}
+                clients={catalog.clients}
+                projectClients={catalog.projectClients}
+                onSelect={(input) => quickStart.mutate(input)}
+              />
             </div>
         </div>
         )}
@@ -617,8 +543,36 @@ export function TimerPage() {
         pending={save.isPending || remove.isPending || quickStart.isPending}
         onClose={() => setDraft(null)}
         onSave={(input) => save.mutate(input)}
-        onPatch={async (input) => {
-          await persistEntry(input)
+        onPatch={async (input, previous) => {
+          if (!input.id || !input.start || !input.end || !previous.start || !previous.end) return
+          await patchEntry(
+            {
+              id: input.id,
+              workspaceId: input.workspaceId,
+              projectId: input.projectId,
+              description: input.description,
+              billable: input.billable,
+              activityId: input.activityId,
+              clientIds: input.clientIds,
+              requestIds: input.requestIds,
+              taskIds: input.taskIds,
+              startedAt: input.start,
+              stoppedAt: input.end,
+            },
+            {
+              id: input.id,
+              workspaceId: previous.workspaceId,
+              projectId: previous.projectId,
+              description: previous.description,
+              billable: previous.billable,
+              activityId: previous.activityId,
+              clientIds: previous.clientIds,
+              requestIds: previous.requestIds,
+              taskIds: previous.taskIds,
+              startedAt: previous.start,
+              stoppedAt: previous.end,
+            },
+          )
           await refresh()
         }}
         onDelete={(id) => remove.mutate(id)}

@@ -137,7 +137,8 @@ export function RequestsPage() {
     const query = taskId.trim().toLowerCase().replace(/^#/, '')
     return (list.data ?? [])
       .filter((row) => {
-        if (query && !requestCode(row.task_number).toLowerCase().includes(query)) return false
+        const idCode = workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''
+        if (query && !requestCode(row.task_number, idCode).toLowerCase().includes(query)) return false
         if (projectId && (row.project_id ?? NO_PROJECT) !== projectId) return false
         if (activityId && (row.activity_id ?? NO_ACTIVITY) !== activityId) return false
         if (!statuses.includes(row.status)) return false
@@ -151,7 +152,7 @@ export function RequestsPage() {
         if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1
         return b.task_number - a.task_number || (a.id < b.id ? 1 : -1)
       })
-  }, [activityId, catalog, clientId, list.data, projectId, statuses, taskId])
+  }, [activityId, catalog, clientId, list.data, projectId, statuses, taskId, workspaces])
 
   const save = useMutation({
     mutationFn: async (input: {
@@ -184,11 +185,10 @@ export function RequestsPage() {
         nextRequest = nextRequest || String(data?.request ?? '').trim()
         setRequester(nextRequester)
         setRequest(nextRequest)
-        if (!nextRequester || !nextRequest) {
-          throw new Error('Add the requester and request, then log again.')
-        }
+        if (!nextRequest) throw new Error('Add the request, then log again.')
       }
-      if (!nextRequester || !nextRequest) throw new Error('Add the requester and request.')
+      if (!nextRequest) throw new Error('Add the request.')
+      nextRequester = nextRequester || '-'
       const { data, error: err } = await supabase.rpc('log_support_request', {
         p_workspace_id: input.workspaceId,
         p_submission_id: submissionId,
@@ -345,7 +345,7 @@ export function RequestsPage() {
           .filter(Boolean)
           .join(', ')
         const values = [
-          requestCode(row.task_number),
+          requestCode(row.task_number, workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''),
           ...(isAll ? [workspaces.find((ws) => ws.id === row.workspace_id)?.name ?? ''] : []),
           row.logged_on,
           row.requester,
@@ -522,6 +522,7 @@ export function RequestsPage() {
                 catalog={catalog}
                 showWorkspace={isAll}
                 workspaceName={workspaces.find((ws) => ws.id === row.workspace_id)?.name}
+                idCode={workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''}
                 onPatch={(next) => patch.mutate(next)}
                 tracking={track.isPending && track.variables?.id === row.id}
                 active={activeRequestIds.has(row.id)}

@@ -55,14 +55,14 @@ export function ProfilePage() {
     queryKey: ['profile-stats', user?.id, prefs.currency],
     enabled: Boolean(user),
     queryFn: async () => {
-      const [entries, requests, tasks] = await Promise.all([
+      const [entries, tasks, completedRequests] = await Promise.all([
         supabase.from('time_entries').select('duration_seconds, billable, project:projects(currency, hourly_rate)'),
-        supabase.from('requests').select('id', { count: 'exact', head: true }),
         supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'done'),
+        supabase.from('requests').select('id', { count: 'exact', head: true }).eq('status', 'done'),
       ])
       if (entries.error) throw entries.error
-      if (requests.error) throw requests.error
       if (tasks.error) throw tasks.error
+      if (completedRequests.error) throw completedRequests.error
       let seconds = 0
       let money = 0
       for (const row of entries.data ?? []) {
@@ -75,8 +75,8 @@ export function ProfilePage() {
       return {
         seconds,
         money,
-        requests: requests.count ?? 0,
         tasks: tasks.count ?? 0,
+        completedRequests: completedRequests.count ?? 0,
       }
     },
   })
@@ -136,13 +136,13 @@ export function ProfilePage() {
           </span>
           <span aria-hidden="true">|</span>
           <span className="inline-flex items-center gap-1.5">
-            <InboxIcon className="size-4" aria-hidden="true" />
-            {stats.data?.requests ?? 0} Requests
+            <ListBulletIcon className="size-4" aria-hidden="true" />
+            {stats.data?.tasks ?? 0} completed tasks
           </span>
           <span aria-hidden="true">|</span>
           <span className="inline-flex items-center gap-1.5">
-            <ListBulletIcon className="size-4" aria-hidden="true" />
-            {stats.data?.tasks ?? 0} completed tasks
+            <InboxIcon className="size-4" aria-hidden="true" />
+            {stats.data?.completedRequests ?? 0} completed requests
           </span>
         </p>
         <div className="flex shrink-0 gap-2">
