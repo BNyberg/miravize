@@ -7,7 +7,7 @@ alwaysApply: true
 
 These are security mandates, not optional hardening.
 
-Signed-in members reach their own workspace through the app. No one else reads or writes tables, functions, storage, or edge functions. The one public exception is `preview_workspace_invite`: an invite link may resolve its token to the invited email, the workspace label, and whether that invite is expired or accepted. It returns nothing else. No other object is callable without a session.
+Signed-in members reach their own workspace through the app. No one else reads or writes tables, functions, storage, or edge functions. Two objects are callable without a session. `preview_workspace_invite` resolves an invite link to the invited email, the workspace label, and whether that invite is expired or accepted. `beta_invite_open` returns only whether a beta signup code is still unused. Neither returns anything else.
 
 ## New tables
 
@@ -16,12 +16,13 @@ Signed-in members reach their own workspace through the app. No one else reads o
 - Every permissive policy requires `auth.uid()` and the real permission: workspace membership, manage or owner, or `user_id = auth.uid()`.
 - Workspace tables also get the existing restrictive policies: `aal_satisfies_mfa()`, `onboarding_complete()`, and `workspace_require_mfa_ok(workspace_id)`.
 - `revoke all` on the table from `anon` and `public`. Grant `authenticated` only the commands the app uses.
+- `beta_invite_codes` is the exception: enable RLS, add no policies, and grant nothing to `anon`, `authenticated`, or `service_role`. The SQL editor inserts hashes. `beta_invite_open` and the signup trigger are the only reads and writes.
 
 ## New functions
 
 - `security definer` functions set `search_path = public`.
 - `enforce_aal()` is not an authentication check. `aal_satisfies_mfa()` and `onboarding_complete()` return true when `auth.uid()` is null, so `enforce_aal()` returns without error for a logged-out caller. A function that reads or writes rejects `auth.uid() is null` and checks membership, role, or ownership before it touches data.
-- `revoke execute` from `public` and `anon`. `grant execute` to `authenticated`. Grant `service_role` only when an edge function calls it with the service key. Grant `anon` only on `preview_workspace_invite`.
+- `revoke execute` from `public` and `anon`. `grant execute` to `authenticated`. Grant `service_role` only when an edge function calls it with the service key. Grant `anon` only on `preview_workspace_invite` and `beta_invite_open`.
 - A trigger on `auth.users` also needs `execute` for `supabase_auth_admin`.
 
 ## New edge functions and storage

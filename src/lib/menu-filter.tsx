@@ -127,9 +127,22 @@ function paintHighlight(nodes: HTMLElement[], index: number) {
 }
 
 function activate(node: HTMLElement) {
-  const opts = { bubbles: true, cancelable: true, pointerType: 'mouse' as const }
-  node.dispatchEvent(new PointerEvent('pointerdown', opts))
-  node.dispatchEvent(new PointerEvent('pointerup', opts))
+  const role = node.getAttribute('role')
+  // A pointerdown is an outside press for a select popup, so it closes the
+  // list before the row can commit. Menu rows commit on click. Multi-select
+  // rows commit on pointerdown. A select row commits on click until a mouse
+  // move marks it, and then on pointerup.
+  if (role === 'menuitem' || role === 'menuitemcheckbox' || role === 'menuitemradio') {
+    node.click()
+    return
+  }
+  if (node instanceof HTMLButtonElement) {
+    node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }))
+    return
+  }
+  node.click()
+  if (!node.isConnected) return
+  node.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }))
 }
 
 export function MenuFilterField({
@@ -170,6 +183,8 @@ export function MenuFilterField({
 
   function onKeyDownCapture(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') return
+    // Tab leaves the popup without choosing. Menus and multi-selects treat Tab
+    // as focus movement, so it must not commit the highlighted row.
     event.stopPropagation()
     const choosing = NAV.has(event.key) || (event.key === ' ' && index.current >= 0)
     if (!choosing) return

@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
 const EMAIL_KEY = 'miravize-onboarding-email'
+const INVITE_KEY = 'miravize-onboarding-invite'
 const AWAITING_KEY = 'miravize-onboarding-awaiting-code'
 const RESEND_SECONDS = 60
 
@@ -26,9 +27,14 @@ function storedEmail() {
   return sessionStorage.getItem(EMAIL_KEY) ?? ''
 }
 
+function storedInvite() {
+  return sessionStorage.getItem(INVITE_KEY) ?? ''
+}
+
 export function SignupPage() {
   const [phase, setPhase] = useState<Phase>(() => (sessionStorage.getItem(AWAITING_KEY) === '1' ? 'verify' : 'email'))
   const [email, setEmail] = useState(storedEmail)
+  const [invite, setInvite] = useState(storedInvite)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -39,7 +45,9 @@ export function SignupPage() {
 
   const emailInvalid = email.length > 0 && !isValidEmail(email)
   const mismatch = confirm.length > 0 && confirm !== password
-  const canCreate = isValidEmail(email) && passwordIsStrong(password) && password === confirm
+  const inviteReady = invite.trim().length > 0
+  const canContinue = isValidEmail(email) && inviteReady
+  const canCreate = canContinue && passwordIsStrong(password) && password === confirm
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -47,17 +55,41 @@ export function SignupPage() {
     return () => window.clearTimeout(timer)
   }, [cooldown])
 
+  async function continueFromEmail() {
+    if (!canContinue || pending) return
+    setPending(true)
+    const { data, error } = await supabase.rpc('beta_invite_open', { p_code: invite.trim() })
+    setPending(false)
+    if (error) {
+      toast({ tone: 'error', title: "Couldn't check invite code", description: error.message })
+      return
+    }
+    if (data !== true) {
+      toast({ tone: 'error', title: "Couldn't check invite code", description: "That invite code isn't valid." })
+      return
+    }
+    sessionStorage.setItem(EMAIL_KEY, email.trim())
+    sessionStorage.setItem(INVITE_KEY, invite.trim())
+    setPhase('password')
+  }
+
   async function createAccount() {
     if (!canCreate || pending) return
     setPending(true)
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password })
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { invite_code: invite.trim() } },
+    })
     setPending(false)
     if (error && !/already registered/i.test(error.message)) {
       toast({ tone: 'error', title: "Couldn't create account", description: error.message })
+      if (/invite code|database error/i.test(error.message)) setPhase('email')
       return
     }
     rememberLoginPassword(email.trim(), password)
     sessionStorage.setItem(EMAIL_KEY, email.trim())
+    sessionStorage.removeItem(INVITE_KEY)
     sessionStorage.setItem(AWAITING_KEY, '1')
     if (data?.session) return
     setPassword('')
@@ -104,9 +136,7 @@ export function SignupPage() {
           className="flex flex-1 flex-col gap-5"
           onSubmit={(event) => {
             event.preventDefault()
-            if (!isValidEmail(email)) return
-            sessionStorage.setItem(EMAIL_KEY, email.trim())
-            setPhase('password')
+            void continueFromEmail()
           }}
         >
           <Heading title="What's your email?" subtitle="You'll use this to sign in." />
@@ -129,7 +159,19 @@ export function SignupPage() {
               </p>
             ) : null}
           </div>
-          <Button type="submit" className="h-10" disabled={!isValidEmail(email)}>
+          <div className="grid gap-1.5">
+            <Label htmlFor="invite-code">Invite code</Label>
+            <Input
+              id="invite-code"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              required
+              value={invite}
+              onChange={(event) => setInvite(event.target.value)}
+            />
+          </div>
+          <Button type="submit" className="h-10" disabled={!canContinue || pending} loading={pending}>
             Continue
           </Button>
           <Footer />
