@@ -28,7 +28,7 @@ npm run dev
 - Build command: `npm run build`
 - Output directory: `dist`
 - Environment variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-- SPA fallback is in `public/_redirects` (`/* /index.html 200`)
+- SPA fallback is `not_found_handling = "single-page-application"` in `wrangler.toml`
 
 Keep `ANTHROPIC_API_KEY` in Supabase Edge secrets only.
 
