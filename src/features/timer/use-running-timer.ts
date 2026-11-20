@@ -1,3 +1,4 @@
+import { revealOne } from '@/features/crypto/read-copy'
 import { qk } from '@/lib/query-keys'
 import { ENTRY_SELECT } from '@/lib/timer'
 import { supabase } from '@/lib/supabase'
@@ -18,7 +19,7 @@ export function useRunningTimer() {
         .eq('user_id', user!.id)
         .maybeSingle()
       if (error) throw error
-      return (data as TimeEntry | null) ?? null
+      return revealOne('time_entries', (data as TimeEntry | null) ?? null)
     },
     refetchInterval: 15_000,
   })

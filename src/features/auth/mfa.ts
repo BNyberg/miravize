@@ -16,8 +16,8 @@ export function metadataString(metadata: unknown, key: string) {
   return typeof value === 'string' ? value : ''
 }
 
-export function digitsOnly(value: string) {
-  return value.replace(/\D/g, '').slice(0, OTP_LENGTH)
+export function digitsOnly(value: string, length = OTP_LENGTH) {
+  return value.replace(/\D/g, '').slice(0, length)
 }
 
 export function otpButtonLabel(length: number, readyLabel: string) {

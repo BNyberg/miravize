@@ -2,12 +2,13 @@ import { Eye, EyeSlash } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 
-import { AuthSocialButtons } from '@/components/auth/auth-social-buttons'
 import { AuthSweepCopy } from '@/components/auth/auth-sweep-copy'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { toast } from '@/components/ui/toast'
+import { rememberLoginPassword } from '@/features/crypto/login-secret'
 import { isValidEmail } from '@/lib/email'
 import { supabase } from '@/lib/supabase'
 
@@ -15,32 +16,19 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const emailInvalid = email.length > 0 && !isValidEmail(email)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setPending(true)
-    setError(null)
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
-    if (err) {
-      setPending(false)
-      setError(err.message)
-    }
-  }
-
-  async function magicLink() {
-    setPending(true)
-    setError(null)
-    const { error: err } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    })
     setPending(false)
-    if (err) setError(err.message)
-    else setMessage('Check your email for a magic link.')
+    if (err) {
+      toast({ tone: 'error', title: "Couldn't sign in", description: err.message })
+      return
+    }
+    rememberLoginPassword(email, password)
   }
 
   return (
@@ -56,12 +44,6 @@ export function LoginPage() {
             </AuthSweepCopy>
           </div>
         </div>
-        {error ? (
-          <div role="alert" className="rounded-md border border-destructive/40 p-3 text-sm">
-            {error}
-          </div>
-        ) : null}
-        {message ? <p className="text-sm text-[#5e5c57]">{message}</p> : null}
         <div className="grid gap-1.5">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -107,20 +89,10 @@ export function LoginPage() {
           </div>
         </div>
         <div className="grid gap-2">
-          <Button type="submit" className="h-10" disabled={pending || !password}>
+          <Button type="submit" className="h-10" disabled={pending || !password} loading={pending}>
             Log In
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-9 text-sm text-[#5e5c57]"
-            disabled={pending || !isValidEmail(email)}
-            onClick={() => void magicLink()}
-          >
-            Email magic link
-          </Button>
         </div>
-        <AuthSocialButtons />
         <p className="text-center text-sm text-[#5e5c57]">
           Don&apos;t have an account?{' '}
           <Link to="/signup" className="font-medium text-[#1c1b19] underline-offset-4 hover:underline">

@@ -14,6 +14,7 @@ import { MultiSelect, type MultiSelectOption } from '@/components/ui/multi-selec
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
+import { revealList } from '@/features/crypto/read-copy'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
@@ -218,7 +219,7 @@ export function ReportPage() {
       let q = supabase
         .from('time_entries')
         .select(
-          '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_requests(request_id, request:requests(id, task_number, request, requester, status, project_id, activity_id, project:projects(name), request_clients(client_id))), time_entry_tasks(task_id, task:tasks(id, task_number, task, requester, status, project_id, activity_id, project:projects(name), task_clients(client_id)))',
+          '*, project:projects(*), activity:activities(*), time_entry_clients(client_id), time_entry_requests(request_id, request:requests(id, workspace_id, task_number, request, request_ciphertext, requester, requester_ciphertext, status, project_id, activity_id, project:projects(id, workspace_id, name, name_ciphertext), request_clients(client_id))), time_entry_tasks(task_id, task:tasks(id, workspace_id, task_number, task, task_ciphertext, requester, requester_ciphertext, status, project_id, activity_id, project:projects(id, workspace_id, name, name_ciphertext), task_clients(client_id)))',
         )
         .gte('started_at', `${from}T00:00:00`)
         .lte('started_at', `${to}T23:59:59`)
@@ -226,7 +227,7 @@ export function ReportPage() {
       if (!isAll) q = q.eq('workspace_id', workspaceId)
       const { data, error } = await q
       if (error) throw error
-      return (data ?? []) as TimeEntry[]
+      return revealList('time_entries', (data ?? []) as TimeEntry[])
     },
   })
 
@@ -241,7 +242,7 @@ export function ReportPage() {
       if (!isAll) q = q.eq('workspace_id', workspaceId)
       const { data, error } = await q
       if (error) throw error
-      return (data ?? []) as SupportRequest[]
+      return revealList('requests', (data ?? []) as SupportRequest[])
     },
   })
 
@@ -256,7 +257,7 @@ export function ReportPage() {
       if (!isAll) q = q.eq('workspace_id', workspaceId)
       const { data, error } = await q
       if (error) throw error
-      return (data ?? []) as Task[]
+      return revealList('tasks', (data ?? []) as Task[])
     },
   })
 

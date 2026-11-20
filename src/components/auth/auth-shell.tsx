@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import { Outlet } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
 
 import { SeigaihaPanel } from '@/components/auth/seigaiha-panel'
 
@@ -22,6 +22,8 @@ const formTone = {
 } as CSSProperties
 
 export function AuthShell() {
+  const location = useLocation()
+  const wide = location.pathname.startsWith('/onboarding')
   const innerRef = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState<number>()
   const [contentHeight, setContentHeight] = useState(0)
@@ -29,9 +31,10 @@ export function AuthShell() {
   useLayoutEffect(() => {
     const el = innerRef.current
     if (!el) return
+    const node = el
 
     function apply() {
-      const next = el.scrollHeight
+      const next = node.scrollHeight
       const max = window.innerHeight - 32
       setContentHeight(next)
       setHeight(Math.min(next, max))
@@ -39,7 +42,7 @@ export function AuthShell() {
 
     apply()
     const observer = new ResizeObserver(apply)
-    observer.observe(el)
+    observer.observe(node)
     window.addEventListener('resize', apply)
     return () => {
       observer.disconnect()
@@ -53,7 +56,7 @@ export function AuthShell() {
         <SeigaihaPanel />
       </div>
       <div
-        className="absolute top-1/2 left-4 right-4 z-10 w-auto -translate-y-1/2 rounded-md bg-white shadow-[0_16px_48px_rgba(28,27,25,0.18)] transition-[height] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] sm:left-1/2 sm:right-auto sm:w-[440px] sm:-translate-x-1/2"
+        className={`absolute top-1/2 left-4 right-4 z-10 w-auto -translate-y-1/2 rounded-md bg-white shadow-[0_16px_48px_rgba(28,27,25,0.18)] transition-[height] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:left-1/2 sm:right-auto sm:-translate-x-1/2 ${wide ? 'sm:w-[520px]' : 'sm:w-[440px]'}`}
         style={{
           ...formTone,
           height,

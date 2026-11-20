@@ -4,6 +4,7 @@ import { addDays, format } from 'date-fns'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
+import { AccountPhoto } from '@/components/account/account-avatar'
 import { Button } from '@/components/ui/button'
 import { DatePicker } from '@/components/ui/date-picker'
 import { TimeField } from '@/components/ui/time-field'
@@ -27,12 +28,15 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useAuth } from '@/features/auth/auth-context'
+import { useOwnAvatar } from '@/features/crypto/use-own-avatar'
 import { qk } from '@/lib/query-keys'
 import { applyActivity, applyClients, applyProject, type RequestCatalog } from '@/lib/request-assignment'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { requestCode } from '@/lib/request-code'
 import { taskCode } from '@/lib/task-code'
 import { formatDuration } from '@/lib/splits'
+import { revealList } from '@/features/crypto/read-copy'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import type { Activity, Client, Project, ProjectClient, TaskStatus, TimeEntry } from '@/types'
@@ -123,6 +127,31 @@ function clientMode(links: ProjectClient[]) {
   return 'auto' as const
 }
 
+function ReadChip({
+  label,
+  empty,
+  color,
+  className,
+  tip,
+}: {
+  label: string
+  empty?: boolean
+  color?: string
+  className?: string
+  tip?: string
+}) {
+  const chip = <Chip label={label} empty={empty} color={color} className={cn('cursor-default', className)} />
+  if (!tip) return chip
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex max-w-full cursor-default">{chip}</span>
+      </TooltipTrigger>
+      <TooltipContent className="z-[60] max-w-sm whitespace-pre-line">{tip}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function Chip({
   label,
   empty,
@@ -162,6 +191,7 @@ function EntryMetaChips({
   clients,
   projectClients,
   stacked = false,
+  readOnly = false,
   onChange,
 }: {
   workspaceId: string
@@ -177,6 +207,7 @@ function EntryMetaChips({
   clients: Client[]
   projectClients: ProjectClient[]
   stacked?: boolean
+  readOnly?: boolean
   onChange: (next: {
     workspaceId: string
     projectId: string
@@ -213,12 +244,12 @@ function EntryMetaChips({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('requests')
-        .select('id, task_number, request, status')
+        .select('id, workspace_id, task_number, request, request_ciphertext, status')
         .eq('workspace_id', scopeWorkspaceId)
         .order('logged_on', { ascending: false })
         .order('task_number', { ascending: false })
       if (error) throw error
-      return (data ?? []) as { id: string; task_number: number; request: string; status: TaskStatus }[]
+      return revealList('requests', (data ?? []) as { id: string; task_number: number; request: string; status: TaskStatus }[])
     },
   })
   const requestRows = workspaceRequests.data ?? []
@@ -230,12 +261,12 @@ function EntryMetaChips({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('tasks')
-        .select('id, task_number, task, status')
+        .select('id, workspace_id, task_number, task, task_ciphertext, status')
         .eq('workspace_id', scopeWorkspaceId)
         .order('logged_on', { ascending: false })
         .order('task_number', { ascending: false })
       if (error) throw error
-      return (data ?? []) as { id: string; task_number: number; task: string; status: TaskStatus }[]
+      return revealList('tasks', (data ?? []) as { id: string; task_number: number; task: string; status: TaskStatus }[])
     },
   })
   const taskRows = workspaceTasks.data ?? []
@@ -280,6 +311,42 @@ function EntryMetaChips({
       description,
       billable: nextProject && next.projectId !== projectId ? nextProject.billable : billable,
     })
+  }
+
+  if (readOnly) {
+    const clientLabel = clientIds
+      .map((id) => clients.find((item) => item.id === id)?.name)
+      .filter(Boolean)
+      .join(', ')
+    return (
+      <div className={cn('flex min-w-0 gap-1.5', stacked ? 'flex-col' : 'flex-wrap')}>
+        {project || activity || clientLabel ? (
+          <div className="flex min-w-0 flex-wrap gap-1.5">
+            {project ? <ReadChip label={project.name} color={project.color} tip={project.name} /> : null}
+            {activity ? <ReadChip label={activity.name} tip={activity.name} /> : null}
+            {clientLabel ? <ReadChip label={clientLabel} tip={clientLabel} /> : null}
+          </div>
+        ) : null}
+        {linkedRequests.length > 0 || linkedTasks.length > 0 ? (
+          <div className="flex min-w-0 flex-wrap gap-1.5">
+            {linkedRequests.length > 0 ? (
+              <ReadChip
+                className="max-w-64"
+                label={linkedRequests.map(requestIdLabel).join(', ')}
+                tip={linkedRequests.map((row) => `${requestIdLabel(row)} · ${row.request}`).join('\n')}
+              />
+            ) : null}
+            {linkedTasks.length > 0 ? (
+              <ReadChip
+                className="max-w-64"
+                label={linkedTasks.map((row) => taskCode(row.task_number, idCode)).join(', ')}
+                tip={linkedTasks.map((row) => `${taskCode(row.task_number, idCode)} · ${row.task}`).join('\n')}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    )
   }
 
   return (
@@ -543,6 +610,40 @@ function EntryMetaChips({
   )
 }
 
+function loggerLabel(name: string | undefined, email: string | undefined) {
+  return name?.trim() || email
+}
+
+function EntryLogger({
+  email,
+  name,
+  avatarUrl,
+}: {
+  email: string | undefined
+  name: string | undefined
+  avatarUrl: string | undefined
+}) {
+  const who = loggerLabel(name, email)
+  const label = who ? `Entry logged by ${who}` : 'Entry logged by you'
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="flex size-9 shrink-0 items-center justify-center self-center overflow-hidden rounded-md bg-muted"
+          role="img"
+          aria-label={label}
+        >
+          <AccountPhoto email={email} avatarUrl={avatarUrl} />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="z-[60]">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function EntryEditor({
   draft,
   projects,
@@ -555,6 +656,8 @@ function EntryEditor({
   onPatch,
   onDelete,
   onContinue,
+  readOnly = false,
+  people = [],
 }: {
   draft: Draft | null
   projects: Project[]
@@ -566,6 +669,8 @@ function EntryEditor({
   onSave: (input: EntrySaveInput) => void
   onPatch: (input: EntrySaveInput, previous: EntrySaveInput) => Promise<void>
   onDelete?: (id: string) => void
+  readOnly?: boolean
+  people?: { user_id: string; email: string; full_name: string | null; avatar_url: string | null }[]
   onContinue?: (input: {
     workspaceId: string
     projectId: string | null
@@ -577,6 +682,8 @@ function EntryEditor({
     taskIds: string[]
   }) => void
 }) {
+  const { user } = useAuth()
+  const ownAvatar = useOwnAvatar()
   const [fields, setFields] = useState<Fields>({
     workspaceId: '',
     projectId: '',
@@ -615,6 +722,12 @@ function EntryEditor({
   }, [draft])
 
   const label = draft?.mode === 'edit' ? 'Logged entry' : draft?.mode === 'start' ? 'Start timer' : 'New entry'
+  const loggerId = draft?.entry?.user_id ?? user?.id
+  const showsSelf = !loggerId || loggerId === user?.id
+  const person = people.find((row) => row.user_id === loggerId)
+  const loggerName = person?.full_name?.trim() || person?.email
+  const loggerEmail = person?.email ?? (showsSelf ? user?.email : undefined)
+  const loggerAvatar = person?.avatar_url ?? (showsSelf ? ownAvatar : undefined)
   const duration =
     fields.start && fields.end ? formatDuration(Math.max(0, Math.round((fields.end.getTime() - fields.start.getTime()) / 1000))) : null
 
@@ -639,6 +752,7 @@ function EntryEditor({
   }
 
   async function commit(next: Fields) {
+    if (readOnly) return
     if (draft?.mode !== 'edit' || !draft.entry) {
       setFields(next)
       return
@@ -719,32 +833,47 @@ function EntryEditor({
               .
             </p>
           ) : (
-            <div className="grid gap-3">
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  {draft?.mode === 'edit' ? (
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Logged</p>
-                  ) : <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Draft</p>}
-                  <input
-                    aria-label="Description"
-                    className="w-full rounded-md bg-transparent text-base font-semibold outline-none transition-colors duration-75 hover:bg-muted placeholder:font-normal placeholder:text-muted-foreground"
-                    value={fields.description}
-                    placeholder={draft?.mode === 'edit' ? 'Description · Enter to save' : 'Description'}
-                    onChange={(event) => setFields((current) => ({ ...current, description: event.target.value }))}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        setFields((current) => ({ ...current, description: snapshot.current.description }))
-                        event.currentTarget.blur()
-                      }
-                      if (event.key !== 'Enter') return
-                      event.preventDefault()
-                      event.currentTarget.blur()
-                      if (draft?.mode === 'edit') void commit({ ...fields, description: fields.description })
-                    }}
-                  />
+            <div className="grid min-w-0 gap-3">
+              <div className="flex min-w-0 items-start gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <EntryLogger email={loggerEmail} name={loggerName} avatarUrl={loggerAvatar} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-px overflow-hidden">
+                    {draft?.mode === 'edit' ? (
+                      <p className="text-[11px] font-medium uppercase leading-none tracking-wide text-muted-foreground">Logged</p>
+                    ) : (
+                      <p className="text-[11px] font-medium uppercase leading-none tracking-wide text-muted-foreground">Draft</p>
+                    )}
+                    {readOnly ? (
+                      <div
+                        tabIndex={0}
+                        aria-label="Description"
+                        className="max-w-full overflow-x-auto overflow-y-hidden text-base font-semibold leading-5"
+                      >
+                        <span className="inline-block whitespace-nowrap">{fields.description}</span>
+                      </div>
+                    ) : (
+                      <input
+                        aria-label="Description"
+                        className="h-5 w-full rounded-md bg-transparent text-base font-semibold leading-5 outline-none transition-colors duration-75 hover:bg-muted placeholder:font-normal placeholder:text-muted-foreground"
+                        value={fields.description}
+                        placeholder={draft?.mode === 'edit' ? 'Description · Enter to save' : 'Description'}
+                        onChange={(event) => setFields((current) => ({ ...current, description: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setFields((current) => ({ ...current, description: snapshot.current.description }))
+                            event.currentTarget.blur()
+                          }
+                          if (event.key !== 'Enter') return
+                          event.preventDefault()
+                          event.currentTarget.blur()
+                          if (draft?.mode === 'edit') void commit({ ...fields, description: fields.description })
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
-                {draft?.mode === 'edit' && draft.entry && onDelete ? (
+                {draft?.mode === 'edit' && draft.entry && onDelete && !readOnly ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label="More">
@@ -776,9 +905,27 @@ function EntryEditor({
                 clients={clients}
                 projectClients={projectClients}
                 stacked
+                readOnly={readOnly}
                 onChange={(next) => void commit({ ...fields, ...next })}
               />
-              {draft?.mode !== 'start' && fields.start && fields.end ? (
+              {draft?.mode !== 'start' && fields.start && fields.end && readOnly ? (
+                <div className="flex flex-nowrap items-center gap-1.5">
+                  <span className="inline-flex h-8 items-center rounded-md border border-border bg-muted/60 px-2.5 font-mono text-xs tabular-nums">
+                    {dateValue}
+                  </span>
+                  <span className="inline-flex h-8 items-center rounded-md border border-border bg-muted/60 px-2 font-mono text-xs tabular-nums">
+                    {startValue}
+                    <span className="px-2 text-muted-foreground" aria-hidden="true">
+                      →
+                    </span>
+                    {endValue}
+                  </span>
+                  {duration ? (
+                    <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{duration}</span>
+                  ) : null}
+                </div>
+              ) : null}
+              {draft?.mode !== 'start' && fields.start && fields.end && !readOnly ? (
                 <div className="flex flex-nowrap items-center gap-1.5">
                   <DatePicker
                     size="sm"
@@ -824,10 +971,12 @@ function EntryEditor({
                 <Switch
                   id="entry-billable"
                   checked={fields.billable}
+                  disabled={readOnly}
+                  className={readOnly ? 'disabled:cursor-default disabled:opacity-100' : undefined}
                   onCheckedChange={(billable) => void commit({ ...fields, billable })}
                 />
                 <Label htmlFor="entry-billable">Billable</Label>
-                {draft?.mode === 'edit' ? (
+                {readOnly ? null : draft?.mode === 'edit' ? (
                   <Button
                     className="ml-auto"
                     disabled={pending || !onContinue}

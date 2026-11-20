@@ -50,6 +50,10 @@ function WeekGrid({
   onMove,
   onEdit,
   onDescribe,
+  onStop,
+  canChange = () => true,
+  loggerName,
+  sideRoom = () => false,
 }: {
   days: Date[]
   entries: TimeEntry[]
@@ -61,6 +65,10 @@ function WeekGrid({
   onMove: (id: string, start: Date, end: Date) => void
   onEdit: (entry: TimeEntry, point: { x: number; y: number }) => void
   onDescribe: (id: string, description: string) => void
+  onStop?: (entry: TimeEntry) => void
+  canChange?: (entry: TimeEntry) => boolean
+  loggerName?: (entry: TimeEntry) => string | undefined
+  sideRoom?: (entry: TimeEntry) => boolean
 }) {
   const scroller = useRef<HTMLDivElement>(null)
   const { zoom, canZoomOut, canZoomIn, canReset, zoomOut, zoomIn, reset } = useTimerGridZoom()
@@ -274,10 +282,12 @@ function WeekGrid({
               ) : null}
               {layoutDay(shown, day, now).map((slice) => {
                 const running = slice.entry.stopped_at == null
+                const editable = canChange(slice.entry)
+                const who = loggerName?.(slice.entry)
                 const color = slice.entry.project?.color || '#5E5C57'
-                const label = entryLabel(slice.entry, clients, projectClients)
+                const label = [who, entryLabel(slice.entry, clients, projectClients)].filter(Boolean).join(' · ')
                 const blockHeight = heightFor(slice.start, slice.end, hourPx)
-                const inlineDescription = dayView && blockHeight >= 32
+                const inlineDescription = editable && dayView && blockHeight >= 32
                 return (
                   <Tooltip key={slice.entry.id}>
                     <TooltipTrigger asChild>
@@ -294,16 +304,27 @@ function WeekGrid({
                       top: topFor(slice.start, day, hourPx),
                       height: blockHeight,
                       left: `calc(${(slice.lane / slice.lanes) * 100}% + 2px)`,
-                      width: `calc(${100 / slice.lanes}% - 4px)`,
+                      width: `calc(${(100 / slice.lanes) * (sideRoom(slice.entry) ? 0.9 : 1)}% - 4px)`,
                       background: running ? `color-mix(in srgb, ${color} var(--running-fill), transparent)` : color,
                       color: inkOn(color),
                       borderRadius: 4,
                       border: running ? `2px dotted ${color}` : undefined,
-                      cursor: running ? 'default' : 'grab',
+                      cursor: running || !editable ? 'default' : 'grab',
                     }}
                     onPointerDown={(event) => {
-                      if (running || event.button !== 0) return
+                      if (event.button !== 0) return
                       event.stopPropagation()
+                      if (running) {
+                        if (editable && onStop) onStop(slice.entry)
+                        return
+                      }
+                      if (!editable) {
+                        onEdit(slice.entry, {
+                          x: event.clientX,
+                          y: event.clientY,
+                        })
+                        return
+                      }
                       gesture.current = {
                         kind: 'move',
                         id: slice.entry.id,
@@ -334,6 +355,7 @@ function WeekGrid({
                           fontSize={labelPx}
                           onSave={(description) => onDescribe(slice.entry.id, description)}
                         />
+                        {who ? <p className="shrink-0 truncate text-[10px] leading-tight opacity-80">{who}</p> : null}
                         <p className="shrink-0 font-mono text-[10px] tabular-nums leading-tight">
                           {formatDuration(Math.round((slice.end - slice.start) / 1000))}
                         </p>
@@ -343,6 +365,11 @@ function WeekGrid({
                         <p className="truncate font-medium leading-tight" style={{ fontSize: labelPx }}>
                           {entryLabel(slice.entry, clients, projectClients)}
                         </p>
+                        {who ? (
+                          <p className="truncate leading-tight opacity-80" style={{ fontSize: Math.max(10, labelPx - 2) }}>
+                            {who}
+                          </p>
+                        ) : null}
                         {slice.end - slice.start > 20 * 60 * 1000 ? (
                           <p className="font-mono text-[10px] tabular-nums leading-tight">
                             {formatDuration(Math.round((slice.end - slice.start) / 1000))}
@@ -350,7 +377,7 @@ function WeekGrid({
                         ) : null}
                       </>
                     )}
-                    {running ? null : (
+                    {running || !editable ? null : (
                       <span
                         className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
                         onPointerDown={(event) => {

@@ -32,6 +32,7 @@ import {
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { logDisabledReason } from '@/lib/log-disabled-reason'
+import { revealList } from '@/features/crypto/read-copy'
 import { supabase } from '@/lib/supabase'
 import {
   applyActivity,
@@ -77,9 +78,10 @@ function RequesterField({
     queryKey: ['task-requesters', workspaceId],
     enabled: Boolean(workspaceId),
     queryFn: async () => {
-      const { data, error } = await supabase.from('tasks').select('requester').eq('workspace_id', workspaceId)
+      const { data, error } = await supabase.from('tasks').select('id, workspace_id, requester, requester_ciphertext').eq('workspace_id', workspaceId)
       if (error) throw error
-      return [...new Set((data ?? []).map((row) => row.requester.trim()).filter((name) => name && name !== '-'))].sort((a, b) =>
+      const revealed = await revealList('tasks', data ?? [])
+      return [...new Set(revealed.map((row) => String(row.requester ?? '').trim()).filter((name) => name && name !== '-'))].sort((a, b) =>
         a.localeCompare(b),
       )
     },

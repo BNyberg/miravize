@@ -1,5 +1,12 @@
 project_id = "miravize"
 
+[auth]
+otp_length = 8
+
+[auth.email.template.confirmation]
+subject = "Your Miravize confirmation code"
+content_path = "./supabase/templates/confirmation.html"
+
 [functions.extract-request]
 verify_jwt = true
 

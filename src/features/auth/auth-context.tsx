@@ -1,3 +1,8 @@
+import { clearSessionKeys } from '@/features/crypto/field-mirror'
+import { clearAvatarObjectUrls } from '@/features/crypto/publish-avatar'
+import { clearEnvelopePresence, clearSessionPrivateKey } from '@/features/crypto/session-private-key'
+import { clearLoginPassword } from '@/features/crypto/login-secret'
+import { clearRecoveryKey } from '@/features/onboarding/recovery-store'
 import { ensureSignupWorkspace } from '@/lib/ensure-signup-workspace'
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
@@ -32,7 +37,7 @@ function computeGate(session: Session, assurance: Assurance, hold: MfaHold): Aut
   const metadata = session.user.user_metadata
   const current = assurance.currentLevel
   const next = assurance.nextLevel
-  if (current === 'aal1' && next === 'aal2' && hold !== 'backup') return 'challenge'
+  if (next === 'aal2' && current !== 'aal2' && hold !== 'backup') return 'challenge'
   if (hold === 'backup' || metadataFlag(metadata, 'mfa_backup_pending')) return 'backup'
   if (metadataFlag(metadata, 'mfa_reenroll_required') || hold === 'setup') return 'setup'
   return 'ready'
@@ -73,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (nextSession: Session, allowRefresh = true) => {
       if (allowRefresh) resolvingRef.current = true
       try {
-        const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(nextSession.access_token)
         if (error || !data) {
           apply(nextSession, { currentLevel: null, nextLevel: null }, error?.message ?? 'Could not check two-factor authentication.')
           return
@@ -119,6 +124,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'INITIAL_SESSION') return
       if (!next || event === 'SIGNED_OUT') {
         holdRef.current = null
+        clearLoginPassword()
+        clearRecoveryKey()
+        clearSessionKeys()
+        clearSessionPrivateKey()
+        clearEnvelopePresence()
+        clearAvatarObjectUrls()
         apply(null, { currentLevel: null, nextLevel: null }, null)
         return
       }

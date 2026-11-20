@@ -171,13 +171,14 @@ export function MenuFilterField({
   function onKeyDownCapture(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') return
     event.stopPropagation()
-    if (!NAV.has(event.key)) return
+    const choosing = NAV.has(event.key) || (event.key === ' ' && index.current >= 0)
+    if (!choosing) return
     event.preventDefault()
     const root = menuRoot(event.currentTarget)
     if (!root) return
     const nodes = visibleOptions(root)
     if (nodes.length === 0) return
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' || event.key === ' ') {
       const current = index.current >= 0 ? nodes[index.current] : undefined
       if (current) activate(current)
       if (document.activeElement !== input.current) input.current?.focus({ preventScroll: true })

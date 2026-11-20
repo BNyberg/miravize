@@ -58,8 +58,10 @@ import {
 } from '@heroicons/react/24/outline'
 import { Buildings } from '@phosphor-icons/react'
 
-import type { ComponentType, SVGProps } from 'react'
+import type { ComponentType, ReactNode, SVGProps } from 'react'
 
+import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
 type HeroIcon = ComponentType<SVGProps<SVGSVGElement>>
@@ -151,6 +153,54 @@ export function decodeWorkspaceIcon(icon: string | null | undefined): { hero: st
   if (icon.startsWith('letters:')) return { hero: null, custom: icon.slice(8) }
   if (icon.startsWith('emoji:')) return { hero: null, custom: icon.slice(6) }
   return { hero: null, custom: '' }
+}
+
+export function IconChooser({
+  hero,
+  custom,
+  onHero,
+  onCustom,
+  children,
+}: {
+  hero: string | null
+  custom: string
+  onHero: (value: string) => void
+  onCustom: (value: string) => void
+  children: ReactNode
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent className="w-80">
+        <div className="grid grid-cols-8 gap-1">
+          {HERO_PRESETS.map((preset) => {
+            const Icon = preset.icon
+            return (
+              <button
+                key={preset.name}
+                type="button"
+                aria-label={preset.name.replace(/Icon$/, '')}
+                className={cn(
+                  'flex size-8 items-center justify-center rounded-md hover:bg-muted',
+                  hero === preset.name && !custom.trim() && 'bg-muted',
+                )}
+                onClick={() => onHero(preset.name)}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+              </button>
+            )
+          })}
+        </div>
+        <Input
+          className="mt-3 h-9"
+          aria-label="Emoji or letters"
+          placeholder="Emoji or 2 letters"
+          value={custom}
+          onChange={(event) => onCustom(event.target.value)}
+        />
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 export function WorkspaceMark({

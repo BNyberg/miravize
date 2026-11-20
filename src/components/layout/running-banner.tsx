@@ -7,6 +7,7 @@ import { QuickStartMenu } from '@/components/timer/quick-start-menu'
 import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toast'
+import { revealList } from '@/features/crypto/read-copy'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
@@ -63,7 +64,7 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
         .eq('workspace_id', otherId!)
         .order('name')
       if (error) throw error
-      return ((data ?? []) as Project[]).filter((project) => !project.archived)
+      return revealList('projects', ((data ?? []) as Project[]).filter((project) => !project.archived))
     },
   })
 
@@ -77,7 +78,7 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
         .eq('workspace_id', otherId!)
         .order('name')
       if (error) throw error
-      return (data ?? []) as Activity[]
+      return revealList('activities', (data ?? []) as Activity[])
     },
   })
 
@@ -91,7 +92,7 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
         .eq('workspace_id', otherId!)
         .order('name')
       if (error) throw error
-      return (data ?? []) as Client[]
+      return revealList('clients', (data ?? []) as Client[])
     },
   })
 
@@ -104,7 +105,7 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
         .select('*, client:clients(*)')
         .eq('workspace_id', otherId!)
       if (error) throw error
-      return (data ?? []) as ProjectClient[]
+      return revealList(null, (data ?? []) as ProjectClient[])
     },
   })
 

@@ -9,6 +9,7 @@ import {
   type RequestAssignment,
   type RequestCatalog,
 } from '@/lib/request-assignment'
+import { AssigneeCell } from '@/components/assignee-cell'
 import { RowTrackButton } from '@/components/timer/row-track-button'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +30,7 @@ import {
 import { TableCell, TableRow } from '@/components/ui/table'
 import { requestCode } from '@/lib/request-code'
 import { cn } from '@/lib/utils'
+import type { WorkspacePerson } from '@/features/workspaces/use-workspace-people'
 import type { SupportRequest, TaskStatus } from '@/types'
 
 const NONE = '__none__'
@@ -115,6 +117,9 @@ export function RequestLedgerRow({
   workspaceName,
   idCode,
   showWorkspace,
+  showAssignee,
+  people,
+  onAssign,
   onPatch,
   tracking,
   active,
@@ -129,6 +134,9 @@ export function RequestLedgerRow({
   workspaceName?: string
   idCode: string
   showWorkspace: boolean
+  showAssignee: boolean
+  people: WorkspacePerson[]
+  onAssign: (userId: string) => void
   onPatch: (next: RequestPatch) => void
   tracking: boolean
   active: boolean
@@ -211,6 +219,11 @@ export function RequestLedgerRow({
           </TableSelectContent>
         </TableSelect>
       </TableCell>
+      {showAssignee ? (
+        <TableCell className="w-24">
+          <AssigneeCell assigneeId={row.assignee_id} people={people} onAssign={onAssign} />
+        </TableCell>
+      ) : null}
       <TableCell className="min-w-[12rem]">
         <TableSelect
           value={assignment.projectId || NONE}

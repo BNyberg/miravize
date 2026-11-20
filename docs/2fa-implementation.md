@@ -48,6 +48,19 @@ The one exception is an in-memory hold for the tab that just verified the code. 
 
 Do not force setup on every AAL1 session. People who never enrolled, or who skipped, enter the app. Setup runs when they choose it, or when recovery has removed the old factor and set re-enroll required.
 
+## Password reset must reach AAL2 before the password changes
+
+This step is easy to miss, and the reset then looks broken. The forgot-password link signs the person in, but that recovery session is AAL1. Once a verified authenticator exists, the auth server rejects `updateUser` for email or password from an AAL1 token. The error is `AAL2 session is required to update email or password when MFA is enabled.` Showing the new-password form and calling `updateUser` immediately produces that error. The link itself is fine.
+
+On `/reset-password`, before the password form:
+
+- No session: keep the card that asks them to open the email link.
+- Next level is AAL2 and the current level is not: show the same authenticator challenge, including the backup-code path. A valid code refreshes assurance and stays on this page. Do not navigate to the app. The code alone must not become a login.
+- A backup code removes the factor and sets re-enroll required. Stay on this page for the new password. After the password is saved, go to authenticator setup.
+- No verified factor: show the password form immediately.
+
+Call `updateUser` only after the session is allowed to change the password. A failure is an error toast: title `Couldn't update password`, description the server message. Accounts that never enrolled keep the one-step form.
+
 ## Session updates that drop the level
 
 Verifying a code raises the access token to AAL2. Updating account metadata often replaces that token with a new AAL1 token. The verified factor is still there, so the next request looks like a password session that has not passed the challenge.

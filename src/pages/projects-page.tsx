@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { mirrorSensitive } from '@/features/crypto/field-mirror'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
@@ -100,6 +101,7 @@ async function renameActivity(id: string, name: string, onSaved: () => void) {
     toast({ tone: 'error', title: 'Could not rename activity', description: failMessage(error) })
     return false
   }
+  await mirrorSensitive('activities', id, { name })
   onSaved()
   return true
 }
@@ -693,6 +695,9 @@ function ClientEditor({
         if (error) throw error
         saved = data as Client
       }
+      const keptName = name.trim()
+      saved = { ...saved, name: keptName }
+      await mirrorSensitive('clients', saved.id, { name: keptName })
       qc.setQueryData(qk.clients(catalogWorkspaceId), (current: Client[] | undefined) => {
         const list = current ?? []
         const index = list.findIndex((item) => item.id === saved.id)
@@ -725,13 +730,14 @@ function ClientEditor({
 
   async function addActivity() {
     if (!editing || !activityName.trim() || !activityProjectId) return
-    const { error } = await supabase.from('activities').insert({
+    const { data, error } = await supabase.from('activities').insert({
       workspace_id: editing.workspace_id,
       project_id: activityProjectId,
       client_id: editing.id,
       name: activityName.trim(),
-    })
+    }).select('id').single()
     if (error) throw error
+    await mirrorSensitive('activities', data.id, { name: activityName.trim() })
     setActivityName('')
     onSaved()
   }
@@ -1099,6 +1105,10 @@ function ProjectEditor({
         if (error) throw error
         saved = data as Project
       }
+      const keptName = name.trim()
+      const keptDescription = description.trim()
+      saved = { ...saved, name: keptName, description: keptDescription }
+      await mirrorSensitive('projects', saved.id, { name: keptName, description: keptDescription })
       qc.setQueryData(qk.projects(catalogWorkspaceId), (current: Project[] | undefined) => {
         const list = current ?? []
         const index = list.findIndex((item) => item.id === saved.id)
@@ -1152,6 +1162,7 @@ function ProjectEditor({
           draftError = failMessage(error)
           leftoverActivities.push(item)
         } else if (data) {
+          await mirrorSensitive('activities', (data as Activity).id, { name: item })
           qc.setQueryData(qk.activities(catalogWorkspaceId), (current: Activity[] | undefined) => [...(current ?? []), data as Activity])
         }
       }
@@ -1170,6 +1181,7 @@ function ProjectEditor({
           draftError = failMessage(error)
           leftoverAliases.push(item)
         } else if (data) {
+          await mirrorSensitive('project_aliases', (data as ProjectAlias).id, { shortcut: item })
           qc.setQueryData(qk.aliases(catalogWorkspaceId), (current: ProjectAlias[] | undefined) => [
             ...(current ?? []),
             data as ProjectAlias,
@@ -1293,15 +1305,16 @@ function ProjectEditor({
                   setShortcut('')
                   return
                 }
-                const { error } = await supabase.from('project_aliases').insert({
+                const { data, error } = await supabase.from('project_aliases').insert({
                   workspace_id: editing.workspace_id,
                   project_id: editing.id,
                   shortcut: value,
-                })
+                }).select('id').single()
                 if (error) {
                   toast({ tone: 'error', title: 'Could not add alias', description: failMessage(error) })
                   return
                 }
+                await mirrorSensitive('project_aliases', data.id, { shortcut: value })
                 setShortcut('')
                 onSaved()
                 toast({ tone: 'success', title: 'Alias added', description: value })
@@ -1543,16 +1556,17 @@ function ProjectEditor({
                   setActivityName('')
                   return
                 }
-                const { error } = await supabase.from('activities').insert({
+                const { data, error } = await supabase.from('activities').insert({
                   workspace_id: editing.workspace_id,
                   project_id: editing.id,
                   client_id: null,
                   name: value,
-                })
+                }).select('id').single()
                 if (error) {
                   toast({ tone: 'error', title: 'Could not add activity', description: failMessage(error) })
                   return
                 }
+                await mirrorSensitive('activities', data.id, { name: value })
                 setActivityName('')
                 onSaved()
               }}
@@ -1709,6 +1723,7 @@ function ProjectEditor({
               toast({ tone: 'error', title: 'Could not rename alias', description: failMessage(error) })
               return false
             }
+            await mirrorSensitive('project_aliases', current.id, { shortcut: next })
             onSaved()
             return true
           }}

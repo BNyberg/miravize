@@ -1,12 +1,12 @@
 import { BanknotesIcon, BuildingOffice2Icon, ClockIcon, InboxIcon, ListBulletIcon } from '@heroicons/react/24/outline'
 import { Desktop, Moon, Sun } from '@phosphor-icons/react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 
 import { AccountAvatar } from '@/components/account/account-avatar'
 import { SecurityCard } from '@/components/account/security-card'
-import { avatarUrlFromUser } from '@/lib/avatar-image'
+import { useOwnAvatar } from '@/features/crypto/use-own-avatar'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from '@/components/ui/toast'
 import { ZOOM_STEPS } from '@/components/timer/week-layout'
 import { useAuth } from '@/features/auth/auth-context'
+import { publishDisplayName } from '@/features/crypto/publish-display-name'
+import { useOwnDisplayName } from '@/features/crypto/use-own-display-name'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { useDebouncedPreferences } from '@/lib/use-debounced-preferences'
 import {
@@ -29,18 +31,14 @@ import {
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
-function savedName(metadata: unknown) {
-  if (!metadata || typeof metadata !== 'object') return ''
-  const name = (metadata as { full_name?: unknown }).full_name
-  return typeof name === 'string' ? name : ''
-}
-
 export function ProfilePage() {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const { memberships } = useWorkspace()
   const { setTheme } = useTheme()
   const { preferences: prefs, schedule } = useDebouncedPreferences()
-  const accountName = savedName(user?.user_metadata)
+  const accountName = useOwnDisplayName()
+  const avatarUrl = useOwnAvatar()
   const accountEmail = user?.email ?? ''
   const [name, setName] = useState(accountName)
   const [savingAccount, setSavingAccount] = useState(false)
@@ -83,16 +81,22 @@ export function ProfilePage() {
 
   async function saveAccount() {
     if (!accountDirty || savingAccount) return
+    const trimmed = name.trim()
     setSavingAccount(true)
-    const { error } = await supabase.auth.updateUser({
-      data: { full_name: name.trim() },
-    })
-    setSavingAccount(false)
-    if (error) {
-      toast({ tone: 'error', title: "Couldn't save account", description: error.message })
-      return
+    try {
+      if (!user?.id) throw new Error('Not signed in')
+      await publishDisplayName(user.id, trimmed)
+      setName(trimmed)
+      await queryClient.invalidateQueries()
+    } catch (error) {
+      toast({
+        tone: 'error',
+        title: "Couldn't save account",
+        description: error instanceof Error ? error.message : 'Try again.',
+      })
+    } finally {
+      setSavingAccount(false)
     }
-    setName(name.trim())
   }
 
   const hours = Math.round((stats.data?.seconds ?? 0) / 3600)
@@ -103,7 +107,7 @@ export function ProfilePage() {
       <h1 className="sr-only">Profile</h1>
       <section className="rounded-lg border border-border bg-card p-4">
         <div className="flex gap-4">
-          <AccountAvatar email={accountEmail} avatarUrl={avatarUrlFromUser(user?.user_metadata)} size="lg" />
+          <AccountAvatar email={accountEmail} avatarUrl={avatarUrl} size="lg" />
           <div className="grid h-20 min-w-0 flex-1 grid-rows-2 gap-2">
             <Input aria-label="Name" className="h-full" value={name} onChange={(event) => setName(event.target.value)} />
             <div className="h-full cursor-not-allowed">

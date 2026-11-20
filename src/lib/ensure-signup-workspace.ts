@@ -1,3 +1,4 @@
+import { sealCreatedWorkspace } from '@/features/crypto/seal-created-workspace'
 import { supabase } from '@/lib/supabase'
 import { suggestWorkspaceIdCode } from '@/lib/workspace-id-code'
 
@@ -19,8 +20,10 @@ export function ensureSignupWorkspace(userId: string, name: string, idCode?: str
       .select('id', { count: 'exact', head: true })
     if (error || (count ?? 0) > 0) return
 
-    const { error: createError } = await supabase.rpc('create_workspace', { p_name: trimmed, p_id_code: code })
+    const { data, error: createError } = await supabase.rpc('create_workspace', { p_name: trimmed, p_id_code: code })
     if (createError) throw createError
+    const id = data && typeof data === 'object' && 'id' in data ? String(data.id) : ''
+    if (id) await sealCreatedWorkspace(id, trimmed)
   })().finally(() => {
     inflight.delete(userId)
   })

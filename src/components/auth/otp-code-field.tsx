@@ -8,14 +8,20 @@ export function OtpCodeField({
   value,
   onChange,
   autoFocus = false,
+  onComplete,
+  label = 'Authentication code',
+  length = OTP_LENGTH,
 }: {
   id: string
   value: string
   onChange: (next: string) => void
   autoFocus?: boolean
+  onComplete?: (code: string) => void
+  label?: string
+  length?: number
 }) {
   const refs = useRef<Array<HTMLInputElement | null>>([])
-  const digits = Array.from({ length: OTP_LENGTH }, (_, index) => value[index] ?? '')
+  const digits = Array.from({ length }, (_, index) => value[index] ?? '')
 
   function setDigit(index: number, next: string) {
     const chars = digits.slice()
@@ -24,11 +30,15 @@ export function OtpCodeField({
   }
 
   function focusBox(index: number) {
-    refs.current[Math.max(0, Math.min(OTP_LENGTH - 1, index))]?.focus()
+    refs.current[Math.max(0, Math.min(length - 1, index))]?.focus()
+  }
+
+  function take(raw: string) {
+    return digitsOnly(raw, length)
   }
 
   return (
-    <div className="grid grid-cols-6 gap-2">
+    <div className={cn('grid gap-1.5', length > 6 ? 'grid-cols-8' : 'grid-cols-6')}>
       {digits.map((digit, index) => (
         <input
           key={index}
@@ -42,21 +52,26 @@ export function OtpCodeField({
           autoComplete={index === 0 ? 'one-time-code' : 'off'}
           inputMode="numeric"
           pattern="[0-9]*"
-          maxLength={index === 0 ? OTP_LENGTH : 1}
-          aria-label={index === 0 ? 'Authentication code' : `Digit ${index + 1}`}
+          maxLength={index === 0 ? length : 1}
+          aria-label={index === 0 ? label : `Digit ${index + 1}`}
           className={cn(
-            'h-14 w-full rounded-md border border-input bg-white text-center text-xl font-medium text-[#1c1b19] outline-none transition-colors duration-75 hover:bg-muted',
+            'h-12 w-full rounded-md border border-input bg-white text-center text-lg font-medium text-[#1c1b19] outline-none transition-colors duration-75 hover:bg-muted',
             'focus:bg-white focus:ring-2 focus:ring-ring',
           )}
           onChange={(event) => {
-            const next = digitsOnly(event.target.value)
+            const next = take(event.target.value)
             if (index === 0 && next.length > 1) {
               onChange(next)
-              focusBox(Math.min(OTP_LENGTH, next.length) - 1)
+              focusBox(Math.min(length, next.length) - 1)
+              if (next.length >= length) onComplete?.(next.slice(0, length))
               return
             }
-            setDigit(index, next.slice(-1))
+            const chars = digits.slice()
+            chars[index] = next.slice(-1)
+            const joined = chars.join('')
+            onChange(joined)
             if (next) focusBox(index + 1)
+            if (joined.length >= length) onComplete?.(joined)
           }}
           onKeyDown={(event) => {
             if (event.key === 'Backspace' && !digits[index]) {
@@ -77,9 +92,10 @@ export function OtpCodeField({
           }}
           onPaste={(event) => {
             event.preventDefault()
-            const next = digitsOnly(event.clipboardData.getData('text'))
+            const next = take(event.clipboardData.getData('text'))
             onChange(next)
-            focusBox(Math.min(OTP_LENGTH, Math.max(1, next.length)) - 1)
+            focusBox(Math.min(length, Math.max(1, next.length)) - 1)
+            if (next.length >= length) onComplete?.(next.slice(0, length))
           }}
           onFocus={(event) => event.target.select()}
         />

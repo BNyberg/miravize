@@ -13,10 +13,13 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { revealList } from '@/features/crypto/read-copy'
 import { useAuth } from '@/features/auth/auth-context'
+import { mirrorSensitive, storedNote } from '@/features/crypto/field-mirror'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
+import { useWorkspacePeople, type WorkspacePerson } from '@/features/workspaces/use-workspace-people'
 import { assignmentClientMode, displayClientIds } from '@/lib/request-assignment'
 import { taskCode } from '@/lib/task-code'
 import type { Task, TaskStatus } from '@/types'
@@ -91,9 +94,18 @@ function Filter({
   )
 }
 
+function assigneeName(people: WorkspacePerson[] | undefined, userId: string) {
+  const person = people?.find((item) => item.user_id === userId)
+  return person?.full_name?.trim() || person?.email || ''
+}
+
 export function TasksPage() {
   const { user } = useAuth()
-  const { workspaceId, isAll, workspaces } = useWorkspace()
+  const { workspaceId, isAll, workspaces, memberships } = useWorkspace()
+  const rosterIds = isAll ? memberships.map((row) => row.workspace_id) : [workspaceId]
+  const roster = useWorkspacePeople(rosterIds)
+  const showAssignee =
+    roster.ready && rosterIds.some((id) => (roster.byWorkspace.get(id)?.length ?? 0) > 1)
   const catalog = useCatalog()
   const qc = useQueryClient()
   const { data: running } = useRunningTimer()
@@ -131,7 +143,7 @@ export function TasksPage() {
       if (!isAll) q = q.eq('workspace_id', workspaceId)
       const { data, error: err } = await q
       if (err) throw err
-      return (data ?? []) as Task[]
+      return revealList('tasks', (data ?? []) as Task[])
     },
   })
 
@@ -205,6 +217,13 @@ export function TasksPage() {
       })
       if (err) throw err
       const created = (Array.isArray(data) ? data[0] : data) as { id?: string } | null
+      if (created?.id) {
+        await mirrorSensitive('tasks', created.id, {
+          requester: nextRequester,
+          task: nextTask,
+          additional_notes: storedNote(input.notes),
+        })
+      }
       if (input.track) {
         if (!created?.id) throw new Error('Task saved, but tracking could not start.')
         const projectId = input.assignment.projectId
@@ -264,11 +283,30 @@ export function TasksPage() {
         p_additional_notes: input.notes,
       })
       if (err) throw err
+      await mirrorSensitive('tasks', input.id, {
+        requester: input.requester,
+        task: input.task,
+        additional_notes: storedNote(input.notes),
+      })
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['tasks'] })
     },
     onError: (err: Error) => toast({ tone: 'error', title: 'Could not update task', description: err.message }),
+  })
+
+  const assign = useMutation({
+    mutationFn: async (input: { id: string; assigneeId: string }) => {
+      const { error: err } = await supabase.rpc('set_task_assignee', {
+        p_id: input.id,
+        p_assignee_id: input.assigneeId,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tasks'] })
+    },
+    onError: (err: Error) => toast({ tone: 'error', title: 'Could not change assignee', description: err.message }),
   })
 
   const track = useMutation({
@@ -335,9 +373,19 @@ export function TasksPage() {
   })
 
   function exportCsv() {
-    const header = isAll
-      ? ['ID', 'Workspace', 'Date', 'Requester', 'Task', 'Status', 'Project', 'Activity', 'Client', 'Notes']
-      : ['ID', 'Date', 'Requester', 'Task', 'Status', 'Project', 'Activity', 'Client', 'Notes']
+    const header = [
+      'ID',
+      ...(isAll ? ['Workspace'] : []),
+      'Date',
+      'Requester',
+      'Task',
+      'Status',
+      ...(showAssignee ? ['Assignee'] : []),
+      'Project',
+      'Activity',
+      'Client',
+      'Notes',
+    ]
     const cell = (value: string) => `"${value.replaceAll('"', '""')}"`
     const lines = [
       header.join(','),
@@ -353,6 +401,7 @@ export function TasksPage() {
           row.requester,
           row.task,
           statusLabel(row.status),
+          ...(showAssignee ? [assigneeName(roster.byWorkspace.get(row.workspace_id), row.assignee_id)] : []),
           row.project?.name ?? '',
           row.activity?.name ?? '',
           clients,
@@ -509,6 +558,7 @@ export function TasksPage() {
               <TableHead className="w-32 min-w-32">Requester</TableHead>
               <TableHead className="min-w-[28rem]">Task</TableHead>
               <TableHead className="min-w-[8rem]">Status</TableHead>
+              {showAssignee ? <TableHead className="w-24">Assignee</TableHead> : null}
               <TableHead className="min-w-[12rem]">Project</TableHead>
               <TableHead className="min-w-[12rem]">Activity</TableHead>
               <TableHead className="min-w-[12rem]">Client</TableHead>
@@ -523,6 +573,9 @@ export function TasksPage() {
                 row={row}
                 catalog={catalog}
                 showWorkspace={isAll}
+                showAssignee={showAssignee}
+                people={roster.byWorkspace.get(row.workspace_id) ?? []}
+                onAssign={(assigneeId) => assign.mutate({ id: row.id, assigneeId })}
                 workspaceName={workspaces.find((ws) => ws.id === row.workspace_id)?.name}
                 idCode={workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''}
                 onPatch={(next) => patch.mutate(next)}

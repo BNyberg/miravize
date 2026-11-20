@@ -13,10 +13,13 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { revealList } from '@/features/crypto/read-copy'
 import { useAuth } from '@/features/auth/auth-context'
+import { mirrorSensitive, storedNote } from '@/features/crypto/field-mirror'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
+import { useWorkspacePeople, type WorkspacePerson } from '@/features/workspaces/use-workspace-people'
 import { assignmentClientMode, displayClientIds } from '@/lib/request-assignment'
 import { requestCode } from '@/lib/request-code'
 import { qk } from '@/lib/query-keys'
@@ -89,9 +92,18 @@ function Filter({
   )
 }
 
+function assigneeName(people: WorkspacePerson[] | undefined, userId: string) {
+  const person = people?.find((item) => item.user_id === userId)
+  return person?.full_name?.trim() || person?.email || ''
+}
+
 export function RequestsPage() {
   const { user } = useAuth()
-  const { workspaceId, isAll, workspaces } = useWorkspace()
+  const { workspaceId, isAll, workspaces, memberships } = useWorkspace()
+  const rosterIds = isAll ? memberships.map((row) => row.workspace_id) : [workspaceId]
+  const roster = useWorkspacePeople(rosterIds)
+  const showAssignee =
+    roster.ready && rosterIds.some((id) => (roster.byWorkspace.get(id)?.length ?? 0) > 1)
   const catalog = useCatalog()
   const qc = useQueryClient()
   const { data: running } = useRunningTimer()
@@ -129,7 +141,7 @@ export function RequestsPage() {
       if (!isAll) q = q.eq('workspace_id', workspaceId)
       const { data, error: err } = await q
       if (err) throw err
-      return (data ?? []) as SupportRequest[]
+      return revealList('requests', (data ?? []) as SupportRequest[])
     },
   })
 
@@ -203,6 +215,13 @@ export function RequestsPage() {
       })
       if (err) throw err
       const created = (Array.isArray(data) ? data[0] : data) as { id?: string } | null
+      if (created?.id) {
+        await mirrorSensitive('requests', created.id, {
+          requester: nextRequester,
+          request: nextRequest,
+          additional_notes: storedNote(input.notes),
+        })
+      }
       if (input.track) {
         if (!created?.id) throw new Error('Request saved, but tracking could not start.')
         const projectId = input.assignment.projectId
@@ -262,11 +281,30 @@ export function RequestsPage() {
         p_additional_notes: input.notes,
       })
       if (err) throw err
+      await mirrorSensitive('requests', input.id, {
+        requester: input.requester,
+        request: input.request,
+        additional_notes: storedNote(input.notes),
+      })
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['requests'] })
     },
     onError: (err: Error) => toast({ tone: 'error', title: 'Could not update request', description: err.message }),
+  })
+
+  const assign = useMutation({
+    mutationFn: async (input: { id: string; assigneeId: string }) => {
+      const { error: err } = await supabase.rpc('set_request_assignee', {
+        p_id: input.id,
+        p_assignee_id: input.assigneeId,
+      })
+      if (err) throw err
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['requests'] })
+    },
+    onError: (err: Error) => toast({ tone: 'error', title: 'Could not change assignee', description: err.message }),
   })
 
   const track = useMutation({
@@ -333,9 +371,19 @@ export function RequestsPage() {
   })
 
   function exportCsv() {
-    const header = isAll
-      ? ['Task ID', 'Workspace', 'Date', 'Requester', 'Request', 'Status', 'Project', 'Activity', 'Client', 'Notes']
-      : ['Task ID', 'Date', 'Requester', 'Request', 'Status', 'Project', 'Activity', 'Client', 'Notes']
+    const header = [
+      'Task ID',
+      ...(isAll ? ['Workspace'] : []),
+      'Date',
+      'Requester',
+      'Request',
+      'Status',
+      ...(showAssignee ? ['Assignee'] : []),
+      'Project',
+      'Activity',
+      'Client',
+      'Notes',
+    ]
     const cell = (value: string) => `"${value.replaceAll('"', '""')}"`
     const lines = [
       header.join(','),
@@ -351,6 +399,7 @@ export function RequestsPage() {
           row.requester,
           row.request,
           statusLabel(row.status),
+          ...(showAssignee ? [assigneeName(roster.byWorkspace.get(row.workspace_id), row.assignee_id)] : []),
           row.project?.name ?? '',
           row.activity?.name ?? '',
           clients,
@@ -507,6 +556,7 @@ export function RequestsPage() {
               <TableHead className="w-32 min-w-32">Requester</TableHead>
               <TableHead className="min-w-[28rem]">Request</TableHead>
               <TableHead className="min-w-[8rem]">Status</TableHead>
+              {showAssignee ? <TableHead className="w-24">Assignee</TableHead> : null}
               <TableHead className="min-w-[12rem]">Project</TableHead>
               <TableHead className="min-w-[12rem]">Activity</TableHead>
               <TableHead className="min-w-[12rem]">Client</TableHead>
@@ -521,6 +571,9 @@ export function RequestsPage() {
                 row={row}
                 catalog={catalog}
                 showWorkspace={isAll}
+                showAssignee={showAssignee}
+                people={roster.byWorkspace.get(row.workspace_id) ?? []}
+                onAssign={(assigneeId) => assign.mutate({ id: row.id, assigneeId })}
                 workspaceName={workspaces.find((ws) => ws.id === row.workspace_id)?.name}
                 idCode={workspaces.find((ws) => ws.id === row.workspace_id)?.id_code ?? ''}
                 onPatch={(next) => patch.mutate(next)}

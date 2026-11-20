@@ -15,11 +15,11 @@ import {
 } from '@phosphor-icons/react'
 import { InboxIcon, ListBulletIcon } from '@heroicons/react/24/outline'
 import { useTheme } from 'next-themes'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { AccountPhoto } from '@/components/account/account-avatar'
-import { avatarUrlFromUser } from '@/lib/avatar-image'
+import { useOwnAvatar } from '@/features/crypto/use-own-avatar'
 import { BrandMark } from '@/components/brand-mark'
 import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { useSidebarCollapsed } from '@/components/layout/use-sidebar-collapsed'
@@ -35,6 +35,9 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/features/auth/auth-context'
+import { useOwnDisplayName } from '@/features/crypto/use-own-display-name'
+import { readMode, subscribeReadMode } from '@/features/crypto/field-mirror'
+import { LockedWorkspaceGate } from '@/features/crypto/unlock-panel'
 import { removeUnverifiedTotp } from '@/features/auth/mfa'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { supabase } from '@/lib/supabase'
@@ -48,6 +51,37 @@ const nav = [
   { to: '/projects', label: 'Projects', icon: Folder },
   { to: '/settings', label: 'Settings', icon: Gear },
 ]
+
+function EncryptionReadBanner() {
+  const { workspaces, workspaceId, isAll } = useWorkspace()
+  const dual = workspaces.filter((workspace) => {
+    const status = (workspace as { encryption_status?: string }).encryption_status
+    return status === 'dual' && (isAll || workspace.id === workspaceId)
+  })
+  if (dual.length === 0) return null
+  return (
+    <div className="grid gap-2 px-4 pt-4">
+      {dual.map((workspace) => (
+        <EncryptionReadLine key={workspace.id} workspaceId={workspace.id} name={workspace.name} />
+      ))}
+    </div>
+  )
+}
+
+function EncryptionReadLine({ workspaceId, name }: { workspaceId: string; name: string }) {
+  const mode = useSyncExternalStore(subscribeReadMode, () => readMode(workspaceId))
+  if (mode === 'encrypted') {
+    return <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm">Reading the encrypted copy of {name}.</p>
+  }
+  if (mode === 'checking') {
+    return <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm">Checking the encrypted copy of {name}.</p>
+  }
+  return (
+    <p className="rounded-lg border border-destructive bg-destructive/10 px-4 py-3 text-sm">
+      Not reading the encrypted copy of {name}. Showing the original text.
+    </p>
+  )
+}
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const { workspaces, workspaceId, isAll, setWorkspaceId } = useWorkspace()
@@ -203,6 +237,8 @@ function UserFooter({
 
 export function AppShell() {
   const { user } = useAuth()
+  const displayName = useOwnDisplayName()
+  const avatarUrl = useOwnAvatar()
   const navigate = useNavigate()
   const pathname = useLocation().pathname
   const timerRoute = pathname === '/timer'
@@ -257,7 +293,7 @@ export function AppShell() {
             <span className="sidebar-fade truncate">Miravize</span>
           </div>
           <NavItems />
-          <UserFooter email={user?.email} name={typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : undefined} avatarUrl={avatarUrlFromUser(user?.user_metadata)} onSignOut={() => void signOut()} />
+          <UserFooter email={user?.email} name={displayName || undefined} avatarUrl={avatarUrl} onSignOut={() => void signOut()} />
         </div>
         </div>
       </aside>
@@ -276,7 +312,7 @@ export function AppShell() {
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
                 <NavItems onNavigate={() => setOpen(false)} />
-                <UserFooter email={user?.email} name={typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : undefined} avatarUrl={avatarUrlFromUser(user?.user_metadata)} onSignOut={() => void signOut()} onNavigate={() => setOpen(false)} />
+                <UserFooter email={user?.email} name={displayName || undefined} avatarUrl={avatarUrl} onSignOut={() => void signOut()} onNavigate={() => setOpen(false)} />
               </div>
             </SheetContent>
           </Sheet>
@@ -298,6 +334,7 @@ export function AppShell() {
                 : 'min-h-0 min-w-0 flex-1 overflow-y-auto'
           }
         >
+          <EncryptionReadBanner />
           {timerRoute ? null : <RunningBanner onPresenceChange={setBannerSpace} />}
           <div
             className={
@@ -308,7 +345,9 @@ export function AppShell() {
                   : pagePad
             }
           >
-            <Outlet />
+            <LockedWorkspaceGate>
+              <Outlet />
+            </LockedWorkspaceGate>
           </div>
         </main>
       </div>

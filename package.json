@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test:crypto": "tsc -p tsconfig.crypto.json --noEmit && node --experimental-strip-types --test src/lib/crypto/crypto.test.ts",
+    "test:onboarding": "node --experimental-strip-types --test src/features/onboarding/onboarding.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -29,9 +31,11 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
+    "hash-wasm": "^4.13.0",
     "html2canvas": "^1.4.1",
     "html2canvas-pro": "^2.6.4",
     "jspdf": "^4.2.1",
+    "libsodium-wrappers": "^0.8.4",
     "next-themes": "^0.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

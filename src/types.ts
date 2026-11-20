@@ -7,6 +7,9 @@ export type Workspace = {
   settings: Record<string, unknown>
   icon: string | null
   id_code: string
+  require_mfa: boolean
+  encryption_status?: 'plaintext' | 'dual' | 'ciphertext_only'
+  key_rotation_status?: 'stable' | 'rotating'
   created_at: string
 }
 
@@ -139,6 +142,8 @@ export type Task = {
   submission_id: string
   status: TaskStatus
   completed_at: string | null
+  completed_by: string | null
+  assignee_id: string
   created_at: string
   project?: Project | null
   activity?: Activity | null
@@ -161,6 +166,8 @@ export type SupportRequest = {
   submission_id: string
   status: TaskStatus
   completed_at: string | null
+  completed_by: string | null
+  assignee_id: string
   created_at: string
   project?: Project | null
   activity?: Activity | null

@@ -1,3 +1,5 @@
+import { useAuth } from '@/features/auth/auth-context'
+import { revealList } from '@/features/crypto/read-copy'
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
 import type { Membership, Workspace } from '@/types'
@@ -27,6 +29,7 @@ type WorkspaceContextValue = {
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
   const [workspaceId, setWorkspaceIdState] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) return stored
@@ -39,14 +42,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   })
 
   const { data = [], isLoading } = useQuery({
-    queryKey: qk.memberships,
+    queryKey: [...qk.memberships, user?.id],
+    enabled: Boolean(user?.id),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('workspace_members')
         .select('id, workspace_id, user_id, role, workspace:workspaces(*)')
+        .eq('user_id', user!.id)
         .order('created_at', { ascending: true })
       if (error) throw error
-      return (data ?? []) as unknown as Membership[]
+      const rows = (data ?? []) as unknown as Membership[]
+      const mine = new Map<string, Membership>()
+      for (const row of rows) {
+        if (row.user_id !== user!.id || mine.has(row.workspace_id)) continue
+        mine.set(row.workspace_id, row)
+      }
+      return revealList(null, [...mine.values()])
     },
   })
 

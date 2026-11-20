@@ -105,12 +105,11 @@ Now extract from the image.`
     console.error('extract-task reply', {
       stop_reason: aiJson.stop_reason,
       types: blocks.map((block: { type?: string }) => block.type),
-      text,
     })
     const extracted = JSON.parse(text.replace(/```json|```/g, '').trim() || '{}') as { requester?: string; task?: string }
     const requester = extracted.requester ?? ''
     const task = extracted.task ?? ''
-    if (!requester || !task) console.error('extract-task empty', { requester, task })
+    if (!requester || !task) console.error('extract-task empty')
     return json({ requester, task })
   } catch (error) {
     console.error('extract-task', error)

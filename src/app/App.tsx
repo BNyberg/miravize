@@ -7,6 +7,13 @@ import { AppShell } from '@/components/layout/app-shell'
 import { ToastHost } from '@/components/ui/toast'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAuth } from '@/features/auth/auth-context'
+import { useOnboardingStatus } from '@/features/onboarding/use-onboarding'
+import { EncryptionGate } from '@/features/crypto/encryption-gate'
+import { RecoveryRotationGate } from '@/features/crypto/recovery-rotation-gate'
+import { SessionUnlock } from '@/features/crypto/session-unlock'
+import { AdoptSharedKeys } from '@/features/crypto/adopt-shared-keys'
+import { ArchiveInvites } from '@/features/crypto/archive-invites'
+import { ShareWorkspaceKeys } from '@/features/crypto/share-workspace-key'
 import { WorkspaceProvider } from '@/features/workspaces/workspace-context'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { ForgotPasswordPage } from '@/pages/forgot-password-page'
@@ -14,6 +21,7 @@ import { InvitePage } from '@/pages/invite-page'
 import { LoginPage } from '@/pages/login-page'
 import { MfaChallengePage } from '@/pages/mfa-challenge-page'
 import { MfaSetupPage } from '@/pages/mfa-setup-page'
+import { EncryptionSetupPage } from '@/pages/encryption-setup-page'
 import { ResetPasswordPage } from '@/pages/reset-password-page'
 import { ProjectsPage } from '@/pages/projects-page'
 import { RequestsPage } from '@/pages/requests-page'
@@ -21,52 +29,101 @@ import { TasksPage } from '@/pages/tasks-page'
 import { ProfilePage } from '@/pages/profile-page'
 import { SettingsPage } from '@/pages/settings-page'
 import { SignupPage } from '@/pages/signup-page'
+import { OnboardingPage } from '@/pages/onboarding-page'
+import { DisclosureGate } from '@/components/privacy/disclosure-dialog'
+import { DISCLOSURES } from '@/features/onboarding/disclosures'
 import { TimerPage } from '@/pages/timer-page'
 import { ReportPage } from '@/pages/reports-page'
 
-function destination(gate: ReturnType<typeof useAuth>['gate'], search: string) {
-  const next = new URLSearchParams(search).get('next') || '/timer'
+function destination(gate: ReturnType<typeof useAuth>['gate'], search: string, complete: boolean) {
+  const requested = new URLSearchParams(search).get('next') || '/timer'
+  const next = complete ? requested : '/onboarding'
   if (gate === 'challenge') return `/mfa?next=${encodeURIComponent(next)}`
+  if (!complete) return '/onboarding'
   if (gate === 'setup' || gate === 'backup') return `/mfa/setup?next=${encodeURIComponent(next)}`
   return next
 }
 
 function GuestGate() {
   const { gate } = useAuth()
+  const onboarding = useOnboardingStatus()
   const location = useLocation()
   if (gate === 'anon' || gate === 'error') return <Outlet />
-  return <Navigate to={destination(gate, location.search)} replace />
+  if (onboarding.loading) return <div className="min-h-[32rem]" />
+  return <Navigate to={destination(gate, location.search, onboarding.complete)} replace />
 }
 
 function MfaGate() {
   const { gate } = useAuth()
+  const onboarding = useOnboardingStatus()
   const location = useLocation()
   if (gate === 'anon' || gate === 'error') {
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
+  if (onboarding.loading) return <div className="min-h-[32rem]" />
   if (location.pathname === '/mfa' && gate !== 'challenge') {
-    return <Navigate to={destination(gate, location.search)} replace />
+    return <Navigate to={destination(gate, location.search, onboarding.complete)} replace />
   }
   if (location.pathname === '/mfa/setup' && gate === 'challenge') {
     return <Navigate to={`/mfa${location.search}`} replace />
   }
+  if (!onboarding.complete && location.pathname === '/mfa/setup' && gate !== 'challenge') {
+    return <Navigate to="/onboarding" replace />
+  }
+  return <Outlet />
+}
+
+function ReadyGate() {
+  const { gate } = useAuth()
+  const onboarding = useOnboardingStatus()
+  const location = useLocation()
+  if (gate === 'anon' || gate === 'error') {
+    const next = `${location.pathname}${location.search}`
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+  }
+  if (onboarding.loading) return <div className="min-h-[32rem]" />
+  if (gate !== 'ready') return <Navigate to={destination(gate, location.search, onboarding.complete)} replace />
+  return <Outlet />
+}
+
+function OnboardingGate() {
+  const { gate } = useAuth()
+  const onboarding = useOnboardingStatus()
+  if (gate === 'anon' || gate === 'error') return <Navigate to="/signup" replace />
+  if (onboarding.loading) return <div className="min-h-[32rem]" />
+  if (gate === 'challenge') return <Navigate to="/mfa?next=%2Fonboarding" replace />
+  if (onboarding.complete) return <Navigate to="/timer" replace />
   return <Outlet />
 }
 
 function Guard({ children }: { children: ReactNode }) {
   const { gate } = useAuth()
+  const onboarding = useOnboardingStatus()
   const location = useLocation()
   if (gate === 'anon' || gate === 'error') {
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
+  if (onboarding.loading) return <div className="min-h-svh bg-background" />
   if (gate !== 'ready') {
-    const next = encodeURIComponent(`${location.pathname}${location.search}`)
-    const path = gate === 'challenge' ? '/mfa' : '/mfa/setup'
+    const next = encodeURIComponent(onboarding.complete ? `${location.pathname}${location.search}` : '/onboarding')
+    const path = gate === 'challenge' ? '/mfa' : onboarding.complete ? '/mfa/setup' : '/onboarding'
     return <Navigate to={`${path}?next=${next}`} replace />
   }
-  return <WorkspaceProvider>{children}</WorkspaceProvider>
+  if (!onboarding.complete) return <Navigate to="/onboarding" replace />
+  return (
+    <EncryptionGate>
+      <RecoveryRotationGate>
+        <SessionUnlock>
+          <ShareWorkspaceKeys />
+          <AdoptSharedKeys />
+          <ArchiveInvites />
+          <WorkspaceProvider>{children}</WorkspaceProvider>
+        </SessionUnlock>
+      </RecoveryRotationGate>
+    </EncryptionGate>
+  )
 }
 
 export function App() {
@@ -113,15 +170,14 @@ export function App() {
           <Route path="/mfa" element={<MfaChallengePage />} />
           <Route path="/mfa/setup" element={<MfaSetupPage />} />
         </Route>
+        <Route element={<ReadyGate />}>
+          <Route path="/encryption-setup" element={<EncryptionSetupPage />} />
+        </Route>
+        <Route element={<OnboardingGate />}>
+          <Route path="/onboarding" element={<OnboardingPage />} />
+        </Route>
+        <Route path="/invite/:token" element={<InvitePage />} />
       </Route>
-      <Route
-        path="/invite/:token"
-        element={
-          <Guard>
-            <InvitePage />
-          </Guard>
-        }
-      />
       <Route
         element={
           <Guard>
@@ -131,9 +187,9 @@ export function App() {
       >
         <Route path="/" element={<Navigate to="/timer" replace />} />
         <Route path="/timer" element={<TimerPage />} />
-        <Route path="/reports" element={<ReportPage />} />
-        <Route path="/requests" element={<RequestsPage />} />
-        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/reports" element={<DisclosureGate disclosure={DISCLOSURES.reports}><ReportPage /></DisclosureGate>} />
+        <Route path="/requests" element={<DisclosureGate disclosure={DISCLOSURES.requests}><RequestsPage /></DisclosureGate>} />
+        <Route path="/tasks" element={<DisclosureGate disclosure={DISCLOSURES.tasks}><TasksPage /></DisclosureGate>} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

@@ -1,5 +1,6 @@
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
+import { revealList } from '@/features/crypto/read-copy'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import type { Activity, Client, Project, ProjectAlias, ProjectClient, ProjectTag, Tag } from '@/types'
 import { useQuery } from '@tanstack/react-query'
@@ -17,7 +18,7 @@ export function useCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase.from('clients').select('*').order('name')
       if (error) throw error
-      return applyWorkspace((data ?? []) as Client[], workspaceId)
+      return revealList('clients', applyWorkspace((data ?? []) as Client[], workspaceId))
     },
   })
 
@@ -26,7 +27,7 @@ export function useCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase.from('projects').select('*').order('name')
       if (error) throw error
-      return applyWorkspace((data ?? []) as Project[], workspaceId)
+      return revealList('projects', applyWorkspace((data ?? []) as Project[], workspaceId))
     },
   })
 
@@ -35,7 +36,7 @@ export function useCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase.from('tags').select('*').order('name')
       if (error) throw error
-      return applyWorkspace((data ?? []) as Tag[], workspaceId)
+      return revealList('tags', applyWorkspace((data ?? []) as Tag[], workspaceId))
     },
   })
 
@@ -44,7 +45,7 @@ export function useCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase.from('project_clients').select('*, client:clients(*)')
       if (error) throw error
-      return applyWorkspace((data ?? []) as ProjectClient[], workspaceId)
+      return revealList(null, applyWorkspace((data ?? []) as ProjectClient[], workspaceId))
     },
   })
 
@@ -62,7 +63,7 @@ export function useCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase.from('activities').select('*').order('name')
       if (error) throw error
-      return applyWorkspace((data ?? []) as Activity[], workspaceId)
+      return revealList('activities', applyWorkspace((data ?? []) as Activity[], workspaceId))
     },
   })
 
@@ -71,7 +72,7 @@ export function useCatalog() {
     queryFn: async () => {
       const { data, error } = await supabase.from('project_aliases').select('*')
       if (error) throw error
-      return applyWorkspace((data ?? []) as ProjectAlias[], workspaceId)
+      return revealList('project_aliases', applyWorkspace((data ?? []) as ProjectAlias[], workspaceId))
     },
   })
 

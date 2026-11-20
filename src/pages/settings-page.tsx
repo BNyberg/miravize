@@ -13,18 +13,23 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   decodeWorkspaceIcon,
   encodeWorkspaceIcon,
-  HERO_PRESETS,
+  IconChooser,
   WorkspaceMark,
 } from '@/components/workspaces/workspace-icon'
 import { useAuth } from '@/features/auth/auth-context'
+import { recordAudit } from '@/features/crypto/audit-log'
+import { heldWorkspaceKey, mirrorSensitive } from '@/features/crypto/field-mirror'
+import { sealCreatedWorkspace } from '@/features/crypto/seal-created-workspace'
+import { revealMemberName } from '@/features/crypto/publish-display-name'
+import { rotateWorkspaceKey } from '@/features/crypto/rotate-workspace-key'
 import { ALL_WORKSPACES, useWorkspace } from '@/features/workspaces/workspace-context'
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
@@ -51,7 +56,15 @@ type Access = {
   canRemove: boolean
 }
 
-type ConfirmState = { kind: 'invite' | 'member'; id: string; name: string } | null
+type ConfirmState = {
+  kind: 'invite' | 'member'
+  id: string
+  name: string
+  workspaceId?: string
+  userId?: string
+  role?: string
+  encrypted?: boolean
+} | null
 
 async function inviteFailure(err: unknown) {
   const context =
@@ -68,7 +81,7 @@ async function inviteFailure(err: unknown) {
 
 export function SettingsPage() {
   const { user } = useAuth()
-  const { workspaceId, isAll, memberships, setWorkspaceId } = useWorkspace()
+  const { workspaceId, isAll, memberships, setWorkspaceId, workspaces } = useWorkspace()
   const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [workspaceQuery, setWorkspaceQuery] = useState('')
@@ -79,6 +92,7 @@ export function SettingsPage() {
   const [inviteWorkspaceId, setInviteWorkspaceId] = useState('')
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>('member')
   const [name, setName] = useState('')
+  const [requireMfa, setRequireMfa] = useState(false)
   const [hero, setHero] = useState<string | null>(null)
   const [custom, setCustom] = useState('')
   const [draftName, setDraftName] = useState('')
@@ -87,6 +101,7 @@ export function SettingsPage() {
   const [draftHero, setDraftHero] = useState<string | null>(null)
   const [draftCustom, setDraftCustom] = useState('')
   const [confirm, setConfirm] = useState<ConfirmState>(null)
+  const [removePassword, setRemovePassword] = useState('')
 
   const visible = useMemo(
     () => (isAll ? memberships : memberships.filter((row) => row.workspace_id === workspaceId)),
@@ -107,6 +122,7 @@ export function SettingsPage() {
   const canManage = selected?.role === 'owner' || selected?.role === 'admin'
   const loadedName = selected?.workspace.name
   const loadedIcon = selected?.workspace.icon ?? null
+  const loadedRequireMfa = selected?.workspace.require_mfa ?? false
   const loadedWorkspaceId = selected?.workspace_id
 
   useEffect(() => {
@@ -115,12 +131,16 @@ export function SettingsPage() {
     setName(loadedName ?? '')
     setHero(decoded.hero)
     setCustom(decoded.custom)
-  }, [loadedIcon, loadedName, loadedWorkspaceId])
+    setRequireMfa(loadedRequireMfa)
+  }, [loadedIcon, loadedName, loadedRequireMfa, loadedWorkspaceId])
 
   const encoded = encodeWorkspaceIcon(custom, hero)
   const dirty =
     Boolean(selected) &&
-    (name.trim() !== selected?.workspace.name.trim() || !encoded.ok || encoded.value !== loadedIcon)
+    (name.trim() !== selected?.workspace.name.trim() ||
+      !encoded.ok ||
+      encoded.value !== loadedIcon ||
+      requireMfa !== loadedRequireMfa)
 
   const peopleQueries = useQueries({
     queries: visible.map((row) => ({
@@ -128,7 +148,9 @@ export function SettingsPage() {
       queryFn: async () => {
         const { data, error } = await supabase.rpc('workspace_people', { p_workspace_id: row.workspace_id })
         if (error) throw error
-        return (data ?? []) as Person[]
+        const rows = (data ?? []) as (Person & { full_name: string | null; avatar_url: string | null; display_name_ciphertext?: unknown; avatar_ciphertext?: unknown })[]
+        const revealed = await Promise.all(rows.map((person) => revealMemberName(row.workspace_id, person)))
+        return revealed as Person[]
       },
     })),
   })
@@ -232,13 +254,35 @@ export function SettingsPage() {
     mutationFn: async () => {
       if (!selected) return
       const next = encodeWorkspaceIcon(custom, hero)
-      if (!next.ok) throw new Error('Use one emoji or up to two letters.')
-      const { error } = await supabase.rpc('update_workspace', {
-        p_workspace_id: selected.workspace_id,
-        p_name: name.trim(),
-        p_icon: next.value,
-      })
-      if (error) throw error
+      const nameChanged = name.trim() !== selected.workspace.name.trim()
+      const iconChanged = !next.ok || next.value !== (selected.workspace.icon ?? null)
+      if (nameChanged || iconChanged) {
+        if (!next.ok) throw new Error('Use one emoji or up to two letters.')
+        const { error } = await supabase.rpc('update_workspace', {
+          p_workspace_id: selected.workspace_id,
+          p_name: name.trim(),
+          p_icon: next.value,
+        })
+        if (error) throw error
+        if (nameChanged) await mirrorSensitive('workspaces', selected.workspace_id, { name: name.trim() })
+      }
+      if (requireMfa !== (selected.workspace.require_mfa ?? false)) {
+        const { error } = await supabase.rpc('set_workspace_require_mfa', {
+          p_workspace_id: selected.workspace_id,
+          p_require_mfa: requireMfa,
+        })
+        if (error) throw error
+        if (!user?.id) throw new Error('Not signed in')
+        await recordAudit({
+          workspaceId: selected.workspace_id,
+          action: 'workspace.mfa_required',
+          actorUserId: user.id,
+          detail: {
+            require_mfa: requireMfa ? 'true' : 'false',
+            workspace_label: selected.workspace.name,
+          },
+        })
+      }
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: qk.memberships })
@@ -266,6 +310,8 @@ export function SettingsPage() {
         })
         if (updateError) throw updateError
       }
+      const sealed = await sealCreatedWorkspace(id, draftName.trim())
+      if (!sealed) throw new Error('Save your recovery key before creating a workspace.')
       return { id }
     },
     onSuccess: async (data) => {
@@ -295,10 +341,12 @@ export function SettingsPage() {
   const sendInvites = useMutation({
     mutationFn: async () => {
       for (const email of inviteEmails) {
+        const label = workspaces.find((row) => row.id === inviteWorkspaceId)?.name?.trim() || ''
         const { data, error } = await supabase.rpc('invite_to_workspace', {
           p_workspace_id: inviteWorkspaceId,
           p_email: email,
           p_role: inviteRole,
+          p_label: label,
         })
         if (error) throw error
         const invite = data as { id?: string } | null
@@ -309,6 +357,19 @@ export function SettingsPage() {
         if (fnErr) throw new Error(await inviteFailure(fnErr))
         if (sent && typeof sent === 'object' && 'error' in sent && sent.error) {
           throw new Error(String(sent.error))
+        }
+        if (user?.id && heldWorkspaceKey(inviteWorkspaceId)) {
+          await recordAudit({
+            workspaceId: inviteWorkspaceId,
+            action: 'invite.sent',
+            actorUserId: user.id,
+            subjectId: invite.id,
+            detail: {
+              target_email: email,
+              role: inviteRole,
+              workspace_label: label,
+            },
+          })
         }
       }
     },
@@ -324,6 +385,26 @@ export function SettingsPage() {
 
   const revokeInvite = useMutation({
     mutationFn: async (id: string) => {
+      if (!user?.id) throw new Error('Not signed in')
+      const invite = await supabase
+        .from('workspace_invites')
+        .select('id, workspace_id, email, role, workspace_label')
+        .eq('id', id)
+        .maybeSingle()
+      if (invite.error) throw invite.error
+      if (invite.data) {
+        await recordAudit({
+          workspaceId: invite.data.workspace_id as string,
+          action: 'invite.revoked',
+          actorUserId: user.id,
+          subjectId: invite.data.id as string,
+          detail: {
+            target_email: invite.data.email as string,
+            role: invite.data.role as string,
+            workspace_label: (invite.data.workspace_label as string | null) ?? '',
+          },
+        })
+      }
       const { error } = await supabase.rpc('revoke_workspace_invite', { p_invite_id: id })
       if (error) throw error
     },
@@ -335,8 +416,27 @@ export function SettingsPage() {
   })
 
   const removeMember = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('workspace_members').delete().eq('id', id)
+    mutationFn: async (row: ConfirmState) => {
+      if (!row || row.kind !== 'member') return
+      if (row.encrypted) {
+        if (!user?.email || !row.workspaceId || !row.userId || removePassword.length === 0) {
+          throw new Error('Enter your password to rotate the workspace key.')
+        }
+        await rotateWorkspaceKey(user.email, removePassword, row.workspaceId, [row.userId])
+      }
+      if (!user?.id || !row.workspaceId) throw new Error('Not signed in')
+      await recordAudit({
+        workspaceId: row.workspaceId,
+        action: 'member.removed',
+        actorUserId: user.id,
+        targetUserId: row.userId,
+        subjectId: row.id,
+        detail: {
+          target_email: row.name,
+          role: row.role ?? '',
+        },
+      })
+      const { error } = await supabase.from('workspace_members').delete().eq('id', row.id)
       if (error) throw error
     },
     onSuccess: async () => {
@@ -362,7 +462,20 @@ export function SettingsPage() {
       setConfirm({ kind: 'invite', id: row.inviteId, name: row.email })
       return
     }
-    if (row.memberId) setConfirm({ kind: 'member', id: row.memberId, name: row.email })
+    if (row.memberId) {
+      const workspace = workspaces.find((item) => item.id === row.workspaceId)
+      const encrypted = workspace?.encryption_status === 'dual' || workspace?.encryption_status === 'ciphertext_only'
+      setRemovePassword('')
+      setConfirm({
+        kind: 'member',
+        id: row.memberId,
+        name: row.email,
+        workspaceId: row.workspaceId,
+        userId: row.userId,
+        role: row.role,
+        encrypted,
+      })
+    }
   }
 
   return (
@@ -468,12 +581,14 @@ export function SettingsPage() {
                 name={name}
                 idCode={selected.workspace.id_code}
                 canManage={canManage}
+                requireMfa={requireMfa}
                 hero={hero}
                 custom={custom}
                 preview={encoded.ok ? encoded.value : loadedIcon}
                 dirty={dirty && Boolean(name.trim())}
                 saving={save.isPending}
                 onName={setName}
+                onRequireMfa={setRequireMfa}
                 onHero={(value) => {
                   setHero(value)
                   setCustom('')
@@ -548,14 +663,38 @@ export function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(confirm)} onOpenChange={(open) => { if (!open) setConfirm(null) }}>
+      <Dialog
+        open={Boolean(confirm)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirm(null)
+            setRemovePassword('')
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="font-bold text-destructive">
               {confirm?.kind === 'member' ? `Delete ${confirm.name}?` : 'Delete invite?'}
             </DialogTitle>
-            <DialogDescription>This action is irreversible.</DialogDescription>
+            <DialogDescription>
+              {confirm?.kind === 'member' && confirm.encrypted
+                ? 'The workspace encryption key is rotated first, so this person can no longer read its names.'
+                : 'This action is irreversible.'}
+            </DialogDescription>
           </DialogHeader>
+          {confirm?.kind === 'member' && confirm.encrypted ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="remove-member-password">Current password</Label>
+              <Input
+                id="remove-member-password"
+                type="password"
+                autoComplete="current-password"
+                value={removePassword}
+                onChange={(event) => setRemovePassword(event.target.value)}
+              />
+            </div>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirm(null)}>
               Cancel
@@ -564,10 +703,11 @@ export function SettingsPage() {
               type="button"
               variant="destructive"
               loading={revokeInvite.isPending || removeMember.isPending}
+              disabled={confirm?.kind === 'member' && confirm.encrypted && removePassword.length === 0}
               onClick={() => {
                 if (!confirm) return
                 if (confirm.kind === 'invite') revokeInvite.mutate(confirm.id)
-                else removeMember.mutate(confirm.id)
+                else removeMember.mutate(confirm)
               }}
             >
               Delete
@@ -633,64 +773,18 @@ export function SettingsPage() {
   )
 }
 
-function IconChooser({
-  hero,
-  custom,
-  onHero,
-  onCustom,
-  children,
-}: {
-  hero: string | null
-  custom: string
-  onHero: (value: string) => void
-  onCustom: (value: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="w-80">
-        <div className="grid grid-cols-8 gap-1">
-          {HERO_PRESETS.map((preset) => {
-            const Icon = preset.icon
-            return (
-              <button
-                key={preset.name}
-                type="button"
-                aria-label={preset.name.replace(/Icon$/, '')}
-                className={cn(
-                  'flex size-8 items-center justify-center rounded-md hover:bg-muted',
-                  hero === preset.name && !custom.trim() && 'bg-muted',
-                )}
-                onClick={() => onHero(preset.name)}
-              >
-                <Icon className="size-4" aria-hidden="true" />
-              </button>
-            )
-          })}
-        </div>
-        <Input
-          className="mt-3 h-9"
-          aria-label="Emoji or letters"
-          placeholder="Emoji or 2 letters"
-          value={custom}
-          onChange={(event) => onCustom(event.target.value)}
-        />
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 function WorkspaceFields({
   name,
   idCode,
   canManage,
+  requireMfa,
   hero,
   custom,
   preview,
   dirty,
   saving,
   onName,
+  onRequireMfa,
   onHero,
   onCustom,
   onDefault,
@@ -699,12 +793,14 @@ function WorkspaceFields({
   name: string
   idCode: string
   canManage: boolean
+  requireMfa: boolean
   hero: string | null
   custom: string
   preview: string | null
   dirty: boolean
   saving: boolean
   onName: (value: string) => void
+  onRequireMfa: (value: boolean) => void
   onHero: (value: string) => void
   onCustom: (value: string) => void
   onDefault: () => void
@@ -720,6 +816,15 @@ function WorkspaceFields({
         disabled={!canManage}
         onChange={(event) => onName(event.target.value)}
       />
+      <div className="mt-3 flex items-center justify-between gap-4">
+        <div>
+          <Label htmlFor="ws-require-mfa">Require an authenticator</Label>
+          <p className="text-sm text-muted-foreground">
+            People without an authenticator cannot open this workspace. This account already uses one.
+          </p>
+        </div>
+        <Switch id="ws-require-mfa" checked={requireMfa} disabled={!canManage} onCheckedChange={onRequireMfa} />
+      </div>
       <div className="mt-3 flex items-center gap-2">
         <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border">
           <WorkspaceMark icon={preview} />
@@ -953,14 +1058,21 @@ function AccessTable({
             <TableCell className="text-muted-foreground">{row.status}</TableCell>
             <TableCell className="sticky right-0 border-l border-border bg-card">
               {row.canRemove ? (
-                <button
-                  type="button"
-                  className="inline-flex size-7 items-center justify-center rounded-md hover:bg-muted"
-                  aria-label={row.status === 'pending' ? `Delete invite for ${row.email}` : `Delete ${row.email}`}
-                  onClick={() => onRemove(row)}
-                >
-                  <XMarkIcon className="size-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex size-7 items-center justify-center rounded-md hover:bg-muted"
+                      aria-label={row.status === 'pending' ? `Delete invite for ${row.email}` : `Delete ${row.email}`}
+                      onClick={() => onRemove(row)}
+                    >
+                      <XMarkIcon className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {row.status === 'pending' ? 'Delete invite' : 'Remove user'}
+                  </TooltipContent>
+                </Tooltip>
               ) : null}
             </TableCell>
           </TableRow>

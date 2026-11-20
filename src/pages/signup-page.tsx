@@ -1,219 +1,284 @@
-import { Check, Circle, Eye, EyeSlash } from '@phosphor-icons/react'
-import { useState } from 'react'
+import { Eye, EyeSlash } from '@phosphor-icons/react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
-import { AuthSocialButtons } from '@/components/auth/auth-social-buttons'
+import { OnboardingProgress } from '@/components/onboarding/onboarding-progress'
+import { OtpCodeField } from '@/components/auth/otp-code-field'
 import { AuthSweepCopy } from '@/components/auth/auth-sweep-copy'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { toast } from '@/components/ui/toast'
+import { rememberLoginPassword } from '@/features/crypto/login-secret'
 import { isValidEmail } from '@/lib/email'
 import { PASSWORD_RULES, passwordIsStrong } from '@/lib/password'
 import { supabase } from '@/lib/supabase'
-import { suggestWorkspaceIdCode, workspaceIdInput } from '@/lib/workspace-id-code'
 import { cn } from '@/lib/utils'
 
+const EMAIL_KEY = 'miravize-onboarding-email'
+const AWAITING_KEY = 'miravize-onboarding-awaiting-code'
+const RESEND_SECONDS = 60
+
+type Phase = 'email' | 'password' | 'verify'
+
+function storedEmail() {
+  return sessionStorage.getItem(EMAIL_KEY) ?? ''
+}
+
 export function SignupPage() {
-  const [email, setEmail] = useState('')
+  const [phase, setPhase] = useState<Phase>(() => (sessionStorage.getItem(AWAITING_KEY) === '1' ? 'verify' : 'email'))
+  const [email, setEmail] = useState(storedEmail)
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [workspaceName, setWorkspaceName] = useState('Personal')
-  const [idCode, setIdCode] = useState('')
-  const [idConfirm, setIdConfirm] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [code, setCode] = useState('')
   const [pending, setPending] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+  const verifying = useRef(false)
 
   const emailInvalid = email.length > 0 && !isValidEmail(email)
-  const suggestion = suggestWorkspaceIdCode(workspaceName)
-  const confirmedCode = (idConfirm ?? '').trim() || suggestion
-  const canSubmit =
-    !pending && isValidEmail(email) && passwordIsStrong(password) && workspaceName.trim().length > 0
+  const mismatch = confirm.length > 0 && confirm !== password
+  const canCreate = isValidEmail(email) && passwordIsStrong(password) && password === confirm
 
-  async function createAccount(code: string) {
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = window.setTimeout(() => setCooldown((value) => value - 1), 1000)
+    return () => window.clearTimeout(timer)
+  }, [cooldown])
+
+  async function createAccount() {
+    if (!canCreate || pending) return
     setPending(true)
-    setError(null)
-    setIdConfirm(null)
-    const name = workspaceName.trim() || 'Personal'
-    const { data, error: err } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: { workspace_name: name, workspace_id_code: code },
-      },
-    })
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password })
     setPending(false)
-    if (err) {
-      setError(err.message)
+    if (error && !/already registered/i.test(error.message)) {
+      toast({ tone: 'error', title: "Couldn't create account", description: error.message })
       return
     }
-    if (!data.session) {
-      setMessage('Check your email to confirm the account, then sign in. Your workspace is created with the account.')
+    rememberLoginPassword(email.trim(), password)
+    sessionStorage.setItem(EMAIL_KEY, email.trim())
+    sessionStorage.setItem(AWAITING_KEY, '1')
+    if (data?.session) return
+    setPassword('')
+    setConfirm('')
+    setPhase('verify')
+    setCooldown(RESEND_SECONDS)
+  }
+
+  async function verify(token: string) {
+    if (verifying.current || token.length < 8) return
+    verifying.current = true
+    setPending(true)
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token,
+      type: 'signup',
+    })
+    verifying.current = false
+    setPending(false)
+    if (error) {
+      setCode('')
+      toast({ tone: 'error', title: "Couldn't verify email", description: error.message })
     }
   }
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!canSubmit) return
-    if (!idCode.trim()) {
-      setIdConfirm(suggestion)
+  async function resend() {
+    if (cooldown > 0 || pending) return
+    setPending(true)
+    const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() })
+    setPending(false)
+    if (error) {
+      toast({ tone: 'error', title: "Couldn't resend code", description: error.message })
       return
     }
-    void createAccount(idCode.trim())
+    setCooldown(RESEND_SECONDS)
+    toast({ tone: 'success', title: 'Confirmation code sent', description: `Check ${email.trim()}.` })
   }
 
   return (
-      <form className="flex flex-col gap-5" onSubmit={(e) => void onSubmit(e)}>
-        <div className="flex flex-col items-center gap-3 text-center">
-          <BrandMark onLight className="size-16" />
-          <div className="grid gap-1">
-            <AuthSweepCopy as="h1" className="text-2xl font-medium tracking-tight">
-              Create your account
-            </AuthSweepCopy>
-            <AuthSweepCopy delay className="text-sm text-[#5e5c57]">
-              Start with a workspace you can invite people into later.
-            </AuthSweepCopy>
+    <div className="flex flex-col gap-5 motion-reduce:transition-none">
+      <OnboardingProgress step={phase} />
+      {phase === 'email' ? (
+        <form
+          className="flex flex-1 flex-col gap-5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!isValidEmail(email)) return
+            sessionStorage.setItem(EMAIL_KEY, email.trim())
+            setPhase('password')
+          }}
+        >
+          <Heading title="What's your email?" subtitle="You'll use this to sign in." />
+          <div className="grid gap-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              autoFocus
+              required
+              aria-invalid={emailInvalid}
+              aria-describedby={emailInvalid ? 'signup-email-error' : undefined}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            {emailInvalid ? (
+              <p id="signup-email-error" className="text-sm text-destructive">
+                Enter a valid email address.
+              </p>
+            ) : null}
           </div>
-        </div>
-        {error ? (
-          <div role="alert" className="rounded-md border border-destructive/40 p-3 text-sm">
-            {error}
-          </div>
-        ) : null}
-        {message ? <p className="text-sm text-[#5e5c57]">{message}</p> : null}
-        <div className="grid gap-1.5">
-          <Label htmlFor="email">
-            Email <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="email"
-            type="email"
-            required
-            aria-required
-            aria-invalid={emailInvalid}
-            aria-describedby={emailInvalid ? 'signup-email-error' : undefined}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+          <Button type="submit" className="h-10" disabled={!isValidEmail(email)}>
+            Continue
+          </Button>
+          <Footer />
+        </form>
+      ) : null}
+      {phase === 'password' ? (
+        <form
+          className="flex flex-1 flex-col gap-5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void createAccount()
+          }}
+        >
+          <Heading title="Create a password" subtitle="This also protects your encrypted data." />
+          <PasswordField
+            id="password"
+            label="Password"
+            autoComplete="new-password"
+            value={password}
+            shown={showPassword}
+            onToggle={() => setShowPassword((open) => !open)}
+            onChange={setPassword}
           />
-          {emailInvalid ? (
-            <p id="signup-email-error" className="text-sm text-destructive">
-              Enter a valid email address.
-            </p>
-          ) : null}
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="password">
-            Password <span className="text-destructive">*</span>
-          </Label>
-          <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              required
-              aria-required
-              aria-describedby="password-rules"
-              autoComplete="new-password"
-              className="pr-10"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              className="absolute inset-y-0 right-0 flex items-center px-3 text-[#5e5c57]"
-              onClick={() => setShowPassword((open) => !open)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
-          <ul id="password-rules" className="grid gap-1 pt-1">
-            {PASSWORD_RULES.map((rule) => {
-              const met = rule.test(password)
-              return (
-                <li
-                  key={rule.id}
-                  className={cn(
-                    'flex items-center gap-2 text-sm',
-                    met ? 'text-[#1c1b19]' : 'text-[#5e5c57]',
-                  )}
-                >
-                  {met ? (
-                    <Check className="size-4 text-primary" weight="bold" aria-hidden />
-                  ) : (
-                    <Circle className="size-4" aria-hidden />
-                  )}
-                  {rule.label}
-                </li>
-              )
-            })}
+          <ul className="grid gap-1 text-sm text-[#5e5c57]">
+            {PASSWORD_RULES.map((rule) => (
+              <li key={rule.id} className={cn(rule.test(password) && 'text-[#1f7a4d]')}>
+                {rule.label}
+              </li>
+            ))}
           </ul>
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="workspace">
-            First workspace <span className="text-destructive">*</span>
-          </Label>
-          <div className="flex gap-2">
-            <Input
-              id="workspace"
-              required
-              aria-required
-              className="min-w-0 flex-1"
-              value={workspaceName}
-              onChange={(e) => setWorkspaceName(e.target.value)}
-            />
-            <Input
-              aria-label="ID"
-              className="w-[3.4rem] uppercase"
-              placeholder={suggestion}
-              value={idCode}
-              onChange={(e) => setIdCode(workspaceIdInput(e.target.value))}
-            />
-          </div>
-        </div>
-        <Dialog open={idConfirm !== null} onOpenChange={(open) => { if (!open) setIdConfirm(null) }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Use ID {confirmedCode}?</DialogTitle>
-              <DialogDescription>
-                Tasks and requests will look like T-{confirmedCode}01 and R-{confirmedCode}01.
-              </DialogDescription>
-            </DialogHeader>
-            <Input
-              aria-label="ID"
-              className="h-9 uppercase"
-              value={idConfirm ?? ''}
-              onChange={(e) => setIdConfirm(workspaceIdInput(e.target.value))}
-            />
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIdConfirm(null)}>
-                Cancel
-              </Button>
-              <Button type="button" disabled={!confirmedCode || pending} onClick={() => void createAccount(confirmedCode)}>
-                Create
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Button type="submit" className="h-10" disabled={!canSubmit}>
-          Create account
-        </Button>
-        <AuthSocialButtons />
-        <p className="text-center text-sm text-[#5e5c57]">
-          Already have an account?{' '}
-          <Link to="/login" className="font-medium text-[#1c1b19] underline-offset-4 hover:underline">
-            Sign in
-          </Link>
-        </p>
-      </form>
+          <PasswordField
+            id="confirm-password"
+            label="Confirm password"
+            autoComplete="new-password"
+            value={confirm}
+            shown={showPassword}
+            onToggle={() => setShowPassword((open) => !open)}
+            onChange={setConfirm}
+          />
+          {mismatch ? <p className="text-sm text-destructive">Passwords do not match.</p> : null}
+          <Button type="submit" className="h-10" disabled={!canCreate || pending} loading={pending}>
+            Continue
+          </Button>
+          <button type="button" className="text-sm text-[#5e5c57] underline-offset-4 hover:underline" onClick={() => setPhase('email')}>
+            Use a different email
+          </button>
+        </form>
+      ) : null}
+      {phase === 'verify' ? (
+        <form
+          className="flex flex-1 flex-col gap-5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void verify(code)
+          }}
+        >
+          <Heading title="Check your email" subtitle={`Enter the 8-digit code sent to ${email.trim()}.`} />
+          <OtpCodeField
+            id="signup-code"
+            label="Confirmation code"
+            length={8}
+            value={code}
+            onChange={setCode}
+            autoFocus
+            onComplete={(next) => void verify(next)}
+          />
+          <Button type="submit" className="h-10" disabled={pending || code.length < 8} loading={pending}>
+            Verify email
+          </Button>
+          <button
+            type="button"
+            className="text-sm text-[#5e5c57] underline-offset-4 hover:underline disabled:opacity-50"
+            disabled={pending || cooldown > 0}
+            onClick={() => void resend()}
+          >
+            {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+          </button>
+          <Footer />
+        </form>
+      ) : null}
+    </div>
+  )
+}
+
+function Heading({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 text-center">
+      <BrandMark onLight className="size-16" />
+      <div className="grid gap-1">
+        <AuthSweepCopy as="h1" className="text-2xl font-medium tracking-tight">
+          {title}
+        </AuthSweepCopy>
+        <AuthSweepCopy delay className="text-sm text-[#5e5c57]">
+          {subtitle}
+        </AuthSweepCopy>
+      </div>
+    </div>
+  )
+}
+
+function Footer() {
+  return (
+    <p className="text-center text-sm text-[#5e5c57]">
+      Already have an account?{' '}
+      <Link to="/login" className="font-medium text-[#1c1b19] underline-offset-4 hover:underline">
+        Sign in
+      </Link>
+    </p>
+  )
+}
+
+function PasswordField({
+  id,
+  label,
+  value,
+  shown,
+  autoComplete,
+  onChange,
+  onToggle,
+}: {
+  id: string
+  label: string
+  value: string
+  shown: boolean
+  autoComplete: string
+  onChange: (value: string) => void
+  onToggle: () => void
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="relative">
+        <Input
+          id={id}
+          type={shown ? 'text' : 'password'}
+          autoComplete={autoComplete}
+          className="pr-10"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className="absolute inset-y-0 right-0 flex items-center px-3 text-[#5e5c57]"
+          onClick={onToggle}
+          aria-label={shown ? 'Hide password' : 'Show password'}
+        >
+          {shown ? <EyeSlash className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
+    </div>
   )
 }

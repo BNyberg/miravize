@@ -1,3 +1,4 @@
+import { mirrorSensitive } from '@/features/crypto/field-mirror'
 import { supabase } from '@/lib/supabase'
 
 export const ENTRY_SELECT =
@@ -57,6 +58,7 @@ export async function startTimer(input: {
   await applyEntryExtras(entry.id, input.workspaceId, activityId, input.clientIds ?? [])
   if (input.requestIds) await replaceEntryRequests(entry.id, input.workspaceId, input.requestIds)
   if (input.taskIds) await replaceEntryTasks(entry.id, input.workspaceId, input.taskIds)
+  await mirrorSensitive('time_entries', entry.id, { description: input.description ?? '' })
   return data
 }
 
@@ -204,6 +206,7 @@ export async function createEntry(input: {
   await replaceEntryClients(data.id, input.workspaceId, input.clientIds ?? [])
   if (input.requestIds) await replaceEntryRequests(data.id, input.workspaceId, input.requestIds)
   if (input.taskIds) await replaceEntryTasks(data.id, input.workspaceId, input.taskIds)
+  await mirrorSensitive('time_entries', data.id, { description: input.description })
   return data
 }
 
@@ -250,6 +253,7 @@ export async function updateEntry(input: {
   await replaceEntryClients(input.id, input.workspaceId, input.clientIds ?? [])
   if (input.requestIds) await replaceEntryRequests(input.id, input.workspaceId, input.requestIds)
   if (input.taskIds) await replaceEntryTasks(input.id, input.workspaceId, input.taskIds)
+  await mirrorSensitive('time_entries', input.id, { description: input.description })
 }
 
 export async function updateRunningEntry(input: {
@@ -277,6 +281,7 @@ export async function updateRunningEntry(input: {
   await replaceEntryClients(input.id, input.workspaceId, input.clientIds)
   if (input.requestIds) await replaceEntryRequests(input.id, input.workspaceId, input.requestIds)
   if (input.taskIds) await replaceEntryTasks(input.id, input.workspaceId, input.taskIds)
+  await mirrorSensitive('time_entries', input.id, { description: input.description })
 }
 
 export type EntryPatch = {
@@ -324,10 +329,26 @@ export async function patchEntry(input: EntryPatch, previous: EntryPatch) {
   await replaceEntryClients(input.id, input.workspaceId, input.clientIds, previous.clientIds)
   await replaceEntryRequests(input.id, input.workspaceId, input.requestIds, previous.requestIds)
   await replaceEntryTasks(input.id, input.workspaceId, input.taskIds, previous.taskIds)
+  if (columns.description !== undefined) {
+    await mirrorSensitive('time_entries', input.id, { description: input.description })
+  }
 }
 
 export async function updateEntryDescription(id: string, description: string) {
   const { error } = await supabase.from('time_entries').update({ description }).eq('id', id)
+  fail(error)
+  await mirrorSensitive('time_entries', id, { description })
+}
+
+export async function stopEntry(id: string, startedAt: string) {
+  const stoppedAt = new Date()
+  const { error } = await supabase
+    .from('time_entries')
+    .update({
+      stopped_at: stoppedAt.toISOString(),
+      duration_seconds: durationSeconds(new Date(startedAt), stoppedAt),
+    })
+    .eq('id', id)
   fail(error)
 }
 

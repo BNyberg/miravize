@@ -1,9 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/toast'
 import { useAuth } from '@/features/auth/auth-context'
+import { publishAvatar } from '@/features/crypto/publish-avatar'
 import {
   AVATAR_ACCEPT,
   AVATAR_VIEW,
@@ -13,13 +15,13 @@ import {
   renderAvatar,
   type AvatarCrop,
 } from '@/lib/avatar-image'
-import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
 const EMPTY_CROP: AvatarCrop = { zoom: 1, panX: 0, panY: 0 }
 
 export function AvatarDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -106,19 +108,8 @@ export function AvatarDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     setSaving(true)
     try {
       const blob = await renderAvatar(image, crop)
-      const ext = blob.type === 'image/jpeg' ? 'jpg' : 'webp'
-      const path = `${user.id}/avatar.${ext}`
-      const uploaded = await supabase.storage.from('avatars').upload(path, blob, {
-        upsert: true,
-        contentType: blob.type,
-        cacheControl: '3600',
-      })
-      if (uploaded.error) throw uploaded.error
-      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
-      const saved = await supabase.auth.updateUser({
-        data: { avatar_url: `${data.publicUrl}?v=${Date.now()}` },
-      })
-      if (saved.error) throw saved.error
+      await publishAvatar(user.id, blob)
+      await queryClient.invalidateQueries()
       onOpenChange(false)
     } catch (error) {
       const description = error instanceof Error ? error.message : 'Try again.'

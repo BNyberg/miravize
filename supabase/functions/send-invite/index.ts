@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
 
     const { data: invite, error: inviteErr } = await userClient
       .from('workspace_invites')
-      .select('id, email, token, accepted_at, workspace:workspaces(name)')
+      .select('id, email, token, accepted_at, workspace_label, workspace:workspaces(name, id_code)')
       .eq('id', body.invite_id)
       .maybeSingle()
     if (inviteErr) throw new Error(inviteErr.message)
@@ -53,10 +53,11 @@ Deno.serve(async (req) => {
     if (invite.accepted_at) return json({ error: 'Invite already accepted.' }, 400)
 
     const workspace = Array.isArray(invite.workspace) ? invite.workspace[0] : invite.workspace
-    const workspaceName = workspace?.name?.trim() || 'a workspace'
+    const workspaceName =
+      invite.workspace_label?.trim() || workspace?.id_code?.trim() || workspace?.name?.trim() || 'a workspace'
     const link = `${origin.origin}/invite/${invite.token}`
-    const subject = `Join ${workspaceName} on Miravize`
-    const html = `<p>You are invited to <strong>${escapeHtml(workspaceName)}</strong> on Miravize.</p><p><a href="${escapeHtml(link)}">Accept invite</a></p><p>This link expires in 14 days. Sign in with ${escapeHtml(invite.email)}.</p>`
+    const subject = `You've been invited to ${workspaceName}`
+    const html = `<p>You've been invited to <strong>${escapeHtml(workspaceName)}</strong> on Miravize.</p><p><a href="${escapeHtml(link)}">Open the invite</a></p><p>This link expires in 14 days. Sign in with ${escapeHtml(invite.email)}.</p>`
 
     const sent = await fetch('https://api.resend.com/emails', {
       method: 'POST',

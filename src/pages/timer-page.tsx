@@ -31,6 +31,8 @@ import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
 import { useRunningTimer } from '@/features/timer/use-running-timer'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
+import { useWorkspacePeople } from '@/features/workspaces/use-workspace-people'
+import { revealList } from '@/features/crypto/read-copy'
 import { qk } from '@/lib/query-keys'
 import { formatDuration } from '@/lib/splits'
 import { supabase } from '@/lib/supabase'
@@ -40,6 +42,7 @@ import {
   deleteEntry,
   patchEntry,
   startTimer,
+  stopEntry,
   stopTimer,
   updateEntry,
   updateEntryDescription,
@@ -71,7 +74,7 @@ function useNarrow() {
 
 export function TimerPage() {
   const { user } = useAuth()
-  const { workspaceId, isAll } = useWorkspace()
+  const { workspaceId, isAll, workspaces, canManageWorkspace } = useWorkspace()
   const catalog = useCatalog()
   const narrow = useNarrow()
   const [anchor, setAnchor] = useState(() => new Date())
@@ -99,29 +102,47 @@ export function TimerPage() {
       let query = supabase
         .from('time_entries')
         .select(ENTRY_SELECT)
-        .eq('user_id', user!.id)
         .gte('started_at', rangeStart.toISOString())
         .lt('started_at', rangeEnd.toISOString())
         .order('started_at', { ascending: true })
       if (!isAll) query = query.eq('workspace_id', workspaceId)
       const { data, error: err } = await query
       if (err) throw err
-      return (data ?? []) as TimeEntry[]
+      return revealList('time_entries', (data ?? []) as TimeEntry[])
     },
+  })
+
+  const sharedRunning = useQuery({
+    queryKey: ['running-shared', workspaceId, user?.id],
+    enabled: Boolean(user),
+    queryFn: async () => {
+      let query = supabase
+        .from('time_entries')
+        .select(ENTRY_SELECT)
+        .is('stopped_at', null)
+        .neq('user_id', user!.id)
+      if (!isAll) query = query.eq('workspace_id', workspaceId)
+      const { data, error: err } = await query
+      if (err) throw err
+      return revealList('time_entries', (data ?? []) as TimeEntry[])
+    },
+    refetchInterval: 15_000,
   })
 
   const blocks = useMemo(() => {
     const unique = new Map<string, TimeEntry>()
     for (const entry of entries.data ?? []) unique.set(entry.id, entry)
     if (running && !unique.has(running.id)) unique.set(running.id, running)
+    for (const entry of sharedRunning.data ?? []) unique.set(entry.id, entry)
     return [...unique.values()]
-  }, [entries.data, running])
+  }, [entries.data, running, sharedRunning.data])
 
   const elapsed = running ? Math.floor((now - new Date(running.started_at).getTime()) / 1000) : 0
 
   async function refresh() {
     await qc.invalidateQueries({ queryKey: ['entries'] })
     await qc.invalidateQueries({ queryKey: qk.running })
+    await qc.invalidateQueries({ queryKey: ['running-shared'] })
   }
 
   async function persistEntry(input: EntrySaveInput) {
@@ -198,6 +219,24 @@ export function TimerPage() {
     },
     onError: (err: Error) => setError(err.message),
   })
+
+  const stopOther = useMutation({
+    mutationFn: (entry: TimeEntry) => stopEntry(entry.id, entry.started_at),
+    onSuccess: refresh,
+    onError: (err: Error) => setError(err.message),
+  })
+
+  const { byWorkspace } = useWorkspacePeople(workspaces.map((workspace) => workspace.id))
+  const roster = [...byWorkspace.values()].flat()
+
+  function canChange(entry: TimeEntry) {
+    return entry.user_id === user?.id || canManageWorkspace(entry.workspace_id)
+  }
+
+  function personName(entry: TimeEntry) {
+    const person = byWorkspace.get(entry.workspace_id)?.find((row) => row.user_id === entry.user_id)
+    return person?.full_name?.trim() || person?.email
+  }
 
   const stop = useMutation({
     mutationFn: stopTimer,
@@ -522,6 +561,13 @@ export function TimerPage() {
         }
         onMove={(id, start, end) => move.mutate({ id, start, end })}
         onDescribe={(id, description) => describe.mutate({ id, description })}
+        onStop={(entry) => {
+          if (entry.user_id === user?.id || !canChange(entry)) return
+          stopOther.mutate(entry)
+        }}
+        canChange={canChange}
+        loggerName={personName}
+        sideRoom={(entry) => (byWorkspace.get(entry.workspace_id)?.length ?? 0) > 1}
         onEdit={(entry, point) => {
           if (!entry.stopped_at) return
           openDraft({
@@ -575,7 +621,9 @@ export function TimerPage() {
           )
           await refresh()
         }}
-        onDelete={(id) => remove.mutate(id)}
+        onDelete={draft?.entry && canChange(draft.entry) ? (id) => remove.mutate(id) : undefined}
+        readOnly={Boolean(draft?.entry && !canChange(draft.entry))}
+        people={roster}
         onContinue={(input) => quickStart.mutate(input)}
       />
     </div>
