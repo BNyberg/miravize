@@ -13,8 +13,12 @@ function DropdownMenuContent({
   sideOffset = 4,
   children,
   filter = true,
+  onOpenAutoFocus,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & { filter?: boolean }) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  filter?: boolean
+  onOpenAutoFocus?: (event: Event) => void
+}) {
   const [query, setQuery] = React.useState('')
   const filtered = filterMenuNodes(children, query, {
     item: DropdownMenuItem,
@@ -35,10 +39,12 @@ function DropdownMenuContent({
           className,
         )}
         {...props}
-        onOpenAutoFocus={(event) => {
-          if (filter) event.preventDefault()
-          props.onOpenAutoFocus?.(event)
-        }}
+        {...({
+          onOpenAutoFocus: (event: Event) => {
+            if (filter) event.preventDefault()
+            onOpenAutoFocus?.(event)
+          },
+        } as React.ComponentProps<typeof DropdownMenuPrimitive.Content>)}
       >
         {filter ? <MenuFilterField value={query} onChange={setQuery} /> : null}
         {filter ? (

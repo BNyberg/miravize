@@ -224,7 +224,7 @@ export function chipsImpliedByHit(hit: MentionHit, catalog: RequestCatalog, exis
   return [{ kind: hit.kind, id: hit.id }]
 }
 
-export function syncPartsToAssignment(parts: NotePart[], assignment: RequestAssignment, catalog: RequestCatalog): NotePart[] {
+export function syncPartsToAssignment(parts: NotePart[], assignment: RequestAssignment): NotePart[] {
   const kept = parts.filter((part) => {
     if (part.type !== 'chip') return true
     const chip = part.chip

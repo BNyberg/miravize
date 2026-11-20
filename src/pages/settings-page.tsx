@@ -191,7 +191,7 @@ export function SettingsPage() {
         })
       }
     })
-    inviteSources.forEach((membership, index) => {
+    inviteSources.forEach((_membership, index) => {
       const invites = inviteQueries[index]?.data ?? []
       for (const invite of invites) {
         if (invite.accepted_at) continue

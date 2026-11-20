@@ -351,7 +351,7 @@ export function RequestComposer({
       setAssignment(next)
       return
     }
-    const synced = syncPartsToAssignment(readNoteParts(editor.current), next, catalog)
+    const synced = syncPartsToAssignment(readNoteParts(editor.current), next)
     writeNoteParts(editor.current, synced, catalog)
     live.current = synced
     setAssignment(next)

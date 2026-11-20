@@ -89,9 +89,10 @@ async function rewriteMemberField(
   const members = await supabase.from('workspace_members').select(`id, ${column}`).eq('workspace_id', workspaceId)
   if (members.error) throw members.error
   for (const member of members.data ?? []) {
-    const sealed = fieldCiphertext(member[column])
+    const row = member as { id: unknown } & Record<typeof column, unknown>
+    const sealed = fieldCiphertext(row[column])
     if (!sealed) continue
-    const recordId = String(member.id)
+    const recordId = String(row.id)
     const currentAad = { workspaceId, table: 'workspace_members', recordId, field, keyVersion: currentVersion }
     const nextAad = { ...currentAad, keyVersion: nextVersion }
     if (sealed.key_version === nextVersion) {

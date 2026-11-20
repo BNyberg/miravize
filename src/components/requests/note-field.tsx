@@ -68,7 +68,7 @@ function chipAfterCollapsedCaret(root: HTMLElement): HTMLElement | null {
   if (node.nodeType === Node.TEXT_NODE && sel.anchorOffset === 0) {
     let current: Node | null = node
     while (current && current !== root) {
-      const prev = current.previousSibling
+      const prev: ChildNode | null = current.previousSibling
       if (prev) {
         if (prev.nodeType === Node.ELEMENT_NODE) {
           const el = prev as HTMLElement

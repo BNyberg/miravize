@@ -55,10 +55,6 @@ function SelectContent({
           className,
         )}
         {...props}
-        onOpenAutoFocus={(event) => {
-          event.preventDefault()
-          props.onOpenAutoFocus?.(event)
-        }}
       >
         <MenuFilterField value={query} onChange={setQuery} />
         <SelectPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto p-1">
