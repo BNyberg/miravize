@@ -1,0 +1,31 @@
+---
+description: Lock every new table, function, and API to signed-in members
+alwaysApply: true
+---
+
+# Data access
+
+These are security mandates, not optional hardening.
+
+Signed-in members reach their own workspace through the app. No one else reads or writes tables, functions, storage, or edge functions. The one public exception is `preview_workspace_invite`: an invite link may resolve its token to the invited email, the workspace label, and whether that invite is expired or accepted. It returns nothing else. No other object is callable without a session.
+
+## New tables
+
+- Enable row level security in the migration that creates the table.
+- Policies are `to authenticated`. A `to public` policy also applies to `anon`.
+- Every permissive policy requires `auth.uid()` and the real permission: workspace membership, manage or owner, or `user_id = auth.uid()`.
+- Workspace tables also get the existing restrictive policies: `aal_satisfies_mfa()`, `onboarding_complete()`, and `workspace_require_mfa_ok(workspace_id)`.
+- `revoke all` on the table from `anon` and `public`. Grant `authenticated` only the commands the app uses.
+
+## New functions
+
+- `security definer` functions set `search_path = public`.
+- `enforce_aal()` is not an authentication check. `aal_satisfies_mfa()` and `onboarding_complete()` return true when `auth.uid()` is null, so `enforce_aal()` returns without error for a logged-out caller. A function that reads or writes rejects `auth.uid() is null` and checks membership, role, or ownership before it touches data.
+- `revoke execute` from `public` and `anon`. `grant execute` to `authenticated`. Grant `service_role` only when an edge function calls it with the service key. Grant `anon` only on `preview_workspace_invite`.
+- A trigger on `auth.users` also needs `execute` for `supabase_auth_admin`.
+
+## New edge functions and storage
+
+- Set `verify_jwt = true`. Load the user from the bearer token. Refuse the call when that user is missing, or when a verified factor exists and the session is still AAL1.
+- Read and write with the user client. Confirm workspace membership before trusting a workspace id. Use the service role only for an operation the user client cannot perform, still scoped to that user.
+- Buckets stay private. Storage policies require `auth.uid()` and folder ownership or workspace membership.

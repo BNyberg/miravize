@@ -19,10 +19,13 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { activityGroups } from '@/components/timer/activity-groups'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
@@ -375,10 +378,14 @@ function EntryMetaChips({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button">
-            <Chip label={activity?.name ?? 'Activity'} empty={!activity} />
+            <Chip
+              label={activity?.name ?? 'Activity'}
+              empty={!activity}
+              color={activity ? projects.find((item) => item.id === activity.project_id)?.color : undefined}
+            />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
+        <DropdownMenuContent className="w-64">
           {activityChoices.length === 0 ? (
             <DropdownMenuItem disabled>No activities</DropdownMenuItem>
           ) : (
@@ -388,11 +395,23 @@ function EntryMetaChips({
                   Clear activity
                 </DropdownMenuItem>
               ) : null}
-              {activityChoices.map((item) => (
-                <DropdownMenuItem key={item.id} onSelect={() => emit(applyActivity(assignment, item.id, catalog))}>
-                  {item.name}
-                  {item.client_id ? ` · ${clients.find((client) => client.id === item.client_id)?.name ?? ''}` : ''}
-                </DropdownMenuItem>
+              {activityGroups(projectChoices, activityChoices, clients).map((group) => (
+                <DropdownMenuGroup key={group.id}>
+                  {group.name ? <DropdownMenuLabel>{group.name}</DropdownMenuLabel> : null}
+                  {group.rows.map(({ activity: item, project: activityProject }) => (
+                    <DropdownMenuItem
+                      key={item.id}
+                      onSelect={() => emit(applyActivity(assignment, item.id, catalog))}
+                    >
+                      <span
+                        className="size-2 shrink-0 rounded-sm"
+                        style={{ background: activityProject.color }}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate">{item.name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
               ))}
             </>
           )}
