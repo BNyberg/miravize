@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { encodeWorkspaceIcon, IconChooser, WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { useAuth } from '@/features/auth/auth-context'
 import {
@@ -33,7 +33,7 @@ import {
   qrSource,
   replaceBackupCodes,
 } from '@/features/auth/mfa'
-import { peekLoginPassword, rememberLoginPassword } from '@/features/crypto/login-secret'
+import { loginPasswordFor, rememberLoginPassword } from '@/features/crypto/login-secret'
 import {
   createProvenAccountKeys,
   loadCryptoProfile,
@@ -127,7 +127,7 @@ function VerifyStep({ email }: { email: string }) {
     setPending(false)
     if (error) {
       setCode('')
-      toast({ tone: 'error', title: "Couldn't verify email", description: error.message })
+      toast.error("Couldn't verify email", { description: error.message })
     }
   }
 
@@ -170,13 +170,13 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
     void enrollAuthenticator().then((result) => {
       if (!alive) return
       if ('error' in result) {
-        toast({ tone: 'error', title: "Couldn't start setup", description: result.error })
+        toast.error("Couldn't start setup", { description: result.error })
         return
       }
       if ('verified' in result) {
         void recordChoice('enrolled')
           .then(() => onDoneRef.current())
-          .catch((error: Error) => toast({ tone: 'error', title: "Couldn't save your choice", description: error.message }))
+          .catch((error: Error) => toast.error("Couldn't save your choice", { description: error.message }))
         return
       }
       setFactorId(result.id)
@@ -194,7 +194,7 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
     setCodes(nextCodes)
     void replaceBackupCodes(nextCodes).catch((error: Error) => {
       setCodes([])
-      toast({ tone: 'error', title: "Couldn't save backup codes", description: error.message })
+      toast.error("Couldn't save backup codes", { description: error.message })
     })
   }, [assurance.currentLevel, codes.length, mode])
 
@@ -206,7 +206,7 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
     if (challenge.error) {
       setHold(null)
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't verify code", description: challenge.error.message })
+      toast.error("Couldn't verify code", { description: challenge.error.message })
       return
     }
     const verified = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.data.id, code: token })
@@ -214,7 +214,7 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
       setHold(null)
       setPending(false)
       setCode('')
-      toast({ tone: 'error', title: "Couldn't verify code", description: verified.error.message })
+      toast.error("Couldn't verify code", { description: verified.error.message })
       return
     }
     const nextCodes = createBackupCodes()
@@ -223,11 +223,7 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
     } catch (error) {
       setHold(null)
       setPending(false)
-      toast({
-        tone: 'error',
-        title: "Couldn't save backup codes",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't save backup codes", { description: error instanceof Error ? error.message : 'Try again.' })
       return
     }
     const saved = await supabase.auth.updateUser({
@@ -238,7 +234,7 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
         mfa_device_name: deviceName.trim() || 'Authenticator',
       },
     })
-    if (saved.error) toast({ tone: 'error', title: "Couldn't save authenticator", description: saved.error.message })
+    if (saved.error) toast.error("Couldn't save authenticator", { description: saved.error.message })
     else {
       await supabase.auth.refreshSession()
       await refreshAssurance()
@@ -255,20 +251,20 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
       const removed = await supabase.auth.mfa.unenroll({ factorId })
       if (removed.error && !factorIsMissing(removed.error)) {
         setPending(false)
-        toast({ tone: 'error', title: "Couldn't skip setup", description: removed.error.message })
+        toast.error("Couldn't skip setup", { description: removed.error.message })
         return
       }
     }
     const saved = await supabase.auth.updateUser({ data: { mfa_setup_skipped: true, mfa_reenroll_required: false } })
     if (saved.error) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't skip setup", description: saved.error.message })
+      toast.error("Couldn't skip setup", { description: saved.error.message })
       return
     }
     const recorded = await supabase.rpc('record_onboarding_mfa_choice', { p_choice: 'skipped' })
     setPending(false)
     if (recorded.error) {
-      toast({ tone: 'error', title: "Couldn't save your choice", description: recorded.error.message })
+      toast.error("Couldn't save your choice", { description: recorded.error.message })
       return
     }
     setHold(null)
@@ -285,19 +281,19 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
     })
     if (saved.error) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't finish setup", description: saved.error.message })
+      toast.error("Couldn't finish setup", { description: saved.error.message })
       return
     }
     const refreshed = await supabase.auth.refreshSession()
     if (refreshed.error) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't finish setup", description: refreshed.error.message })
+      toast.error("Couldn't finish setup", { description: refreshed.error.message })
       return
     }
     const recorded = await supabase.rpc('record_onboarding_mfa_choice', { p_choice: 'enrolled' })
     setPending(false)
     if (recorded.error) {
-      toast({ tone: 'error', title: "Couldn't save your choice", description: recorded.error.message })
+      toast.error("Couldn't save your choice", { description: recorded.error.message })
       return
     }
     setHold(null)
@@ -348,8 +344,8 @@ function MfaStep({ backupFirst, onDone }: { backupFirst: boolean; onDone: () => 
             className="h-10"
             disabled={codes.length === 0}
             onClick={() => void navigator.clipboard.writeText(codes.join('\n')).then(
-              () => toast({ tone: 'success', title: 'Backup codes copied' }),
-              () => toast({ tone: 'error', title: "Couldn't copy backup codes", description: 'Copy them manually.' }),
+              () => toast.success('Backup codes copied'),
+              () => toast.error("Couldn't copy backup codes", { description: 'Copy them manually.' }),
             )}
           >
             Copy
@@ -418,6 +414,51 @@ async function recordChoice(choice: 'enrolled' | 'skipped') {
   if (recorded.error) throw new Error(recorded.error.message)
 }
 
+type RecoveryPrepareResult =
+  | { ok: true; key: string; replaced: boolean }
+  | { ok: false; reason: 'ready' | 'error'; message: string }
+
+let recoveryPrepareTask: Promise<RecoveryPrepareResult> | null = null
+
+function prepareRecoveryKey(input: { userId: string; email: string; password: string }) {
+  if (recoveryPrepareTask) return recoveryPrepareTask
+  recoveryPrepareTask = createRecoveryKey(input).finally(() => {
+    recoveryPrepareTask = null
+  })
+  return recoveryPrepareTask
+}
+
+async function createRecoveryKey(input: { userId: string; email: string; password: string }): Promise<RecoveryPrepareResult> {
+  try {
+    const profile = await loadCryptoProfile()
+    if (profile?.crypto_status === 'ready') {
+      return { ok: false, reason: 'ready', message: 'A new key was not created.' }
+    }
+    let nextKey = readRecoveryKey()
+    let replaced = false
+    if (profile?.crypto_status === 'setup_pending' && !nextKey) {
+      nextKey = await replacePendingRecovery(input.userId, input.email, input.password)
+      replaced = true
+    } else if (!profile) {
+      const bundle = await createProvenAccountKeys(input.userId, input.email, input.password)
+      try {
+        await savePendingProfile(input.userId, bundle, input.password)
+        nextKey = bundle.recoveryKey
+      } finally {
+        zeroBytes(bundle.privateKey)
+      }
+    }
+    if (!nextKey) {
+      return { ok: false, reason: 'error', message: 'The recovery key is no longer in this browser. Enter your password to continue.' }
+    }
+    rememberLoginPassword(input.email, input.password)
+    rememberRecoveryKey(nextKey)
+    return { ok: true, key: nextKey, replaced }
+  } catch (error) {
+    return { ok: false, reason: 'error', message: error instanceof Error ? error.message : 'Try again.' }
+  }
+}
+
 function RecoveryStep({
   userId,
   email,
@@ -429,8 +470,8 @@ function RecoveryStep({
   cryptoStatus: 'setup_pending' | 'ready' | null
   onDone: () => Promise<void>
 }) {
-  const saved = peekLoginPassword()
-  const [password, setPassword] = useState(saved?.email === email ? saved.password : '')
+  const cachedPassword = loginPasswordFor(email) ?? ''
+  const [password, setPassword] = useState(cachedPassword)
   const [showPassword, setShowPassword] = useState(false)
   const [recoveryKey, setRecoveryKey] = useState<string | null>(() => readRecoveryKey())
   const [view, setView] = useState<'save' | 'confirm'>('save')
@@ -438,47 +479,45 @@ function RecoveryStep({
   const [typed, setTyped] = useState('')
   const [pending, setPending] = useState(false)
   const [replaced, setReplaced] = useState(false)
+  const [autoFailed, setAutoFailed] = useState(false)
   const formatted = recoveryKey ? formatRecoveryKey(recoveryKey) : ''
+
+  function applyRecoveryPrepare(result: RecoveryPrepareResult) {
+    if (result.ok) {
+      setReplaced(result.replaced)
+      setRecoveryKey(result.key)
+      return
+    }
+    setAutoFailed(true)
+    if (result.reason === 'ready') {
+      toast.error('Enter a group from your saved recovery key', { description: result.message })
+      return
+    }
+    toast.error("Couldn't prepare your recovery key", { description: result.message })
+  }
 
   useEffect(() => {
     if (!recoveryKey || groupIndex != null) return
     setGroupIndex(randomGroupIndex(recoveryGroups(formatRecoveryKey(recoveryKey)).length))
   }, [groupIndex, recoveryKey])
 
+  useEffect(() => {
+    if (recoveryKey || cachedPassword.length === 0 || readRecoveryKey()) return
+    let cancelled = false
+    void prepareRecoveryKey({ userId, email, password: cachedPassword }).then((result) => {
+      if (cancelled) return
+      applyRecoveryPrepare(result)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [cachedPassword, email, recoveryKey, userId])
+
   async function prepare() {
     if (pending || password.length === 0) return
     setPending(true)
     try {
-      const profile = await loadCryptoProfile()
-      if (profile?.crypto_status === 'ready') {
-        toast({ tone: 'error', title: 'Enter a group from your saved recovery key', description: 'A new key was not created.' })
-        setPending(false)
-        return
-      }
-      let nextKey = readRecoveryKey()
-      if (profile?.crypto_status === 'setup_pending' && !nextKey) {
-        nextKey = await replacePendingRecovery(userId, email, password)
-        setReplaced(true)
-      } else if (!profile) {
-        const bundle = await createProvenAccountKeys(userId, email, password)
-        try {
-          await savePendingProfile(userId, bundle, password)
-          nextKey = bundle.recoveryKey
-        } finally {
-          zeroBytes(bundle.privateKey)
-        }
-      }
-      if (!nextKey) throw new Error('The recovery key is no longer in this browser. Enter your password to continue.')
-      rememberLoginPassword(email, password)
-      rememberRecoveryKey(nextKey)
-      setRecoveryKey(nextKey)
-      setGroupIndex(randomGroupIndex(recoveryGroups(formatRecoveryKey(nextKey)).length))
-    } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't prepare your recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      applyRecoveryPrepare(await prepareRecoveryKey({ userId, email, password }))
     } finally {
       setPending(false)
     }
@@ -487,7 +526,7 @@ function RecoveryStep({
   async function confirm() {
     if (pending || !recoveryKey || groupIndex == null) return
     if (!recoveryGroupMatches(formatRecoveryKey(recoveryKey), groupIndex, typed)) {
-      toast({ tone: 'error', title: "That doesn't match", description: `Check the ${ordinal(groupIndex + 1)} group and try again.` })
+      toast.error("That doesn't match", { description: `Check the ${ordinal(groupIndex + 1)} group and try again.` })
       return
     }
     setPending(true)
@@ -496,17 +535,20 @@ function RecoveryStep({
       const confirmed = await supabase.rpc('confirm_onboarding_recovery')
       if (confirmed.error) throw new Error(confirmed.error.message)
       clearRecoveryKey()
-      setRecoveryKey(null)
       await onDone()
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't save your recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't save your recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
+  }
+
+  if (!recoveryKey && cachedPassword.length > 0 && !autoFailed) {
+    return (
+      <div className="flex flex-col gap-5">
+        <Heading title="Secure your encrypted data" subtitle="Creating your recovery key." />
+      </div>
+    )
   }
 
   if (!recoveryKey) {
@@ -523,7 +565,7 @@ function RecoveryStep({
           subtitle={
             cryptoStatus === 'setup_pending'
               ? 'The previous recovery key left this browser, so it is no longer valid. Enter your password to create a replacement.'
-              : 'Your sensitive data is encrypted to protect your privacy.\nEnter your password to create a recovery key, so you can restore access if you ever forget your password.'
+              : 'This browser no longer has the password from when you created your account. Enter it to create your recovery key.'
           }
         />
         <div className="grid gap-1.5">
@@ -606,8 +648,8 @@ function RecoveryStep({
           variant="outline"
           className="h-10"
           onClick={() => void navigator.clipboard.writeText(formatted).then(
-            () => toast({ tone: 'success', title: 'Recovery key copied' }),
-            () => toast({ tone: 'error', title: "Couldn't copy recovery key", description: 'Copy it manually.' }),
+            () => toast.success('Recovery key copied'),
+            () => toast.error("Couldn't copy recovery key", { description: 'Copy it manually.' }),
           )}
         >
           Copy
@@ -671,8 +713,7 @@ function WorkspaceStep({ email, onDone }: { email: string; onDone: () => void })
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
   const [passwordInput, setPasswordInput] = useState('')
-  const saved = peekLoginPassword()
-  const needsPassword = saved?.email !== email
+  const needsPassword = loginPasswordFor(email) == null
   const icon = encodeWorkspaceIcon(custom, hero)
   const suggestion = suggestWorkspaceIdCode(name)
 
@@ -683,7 +724,7 @@ function WorkspaceStep({ email, onDone }: { email: string; onDone: () => void })
         if (alive) setExisting(workspace)
       })
       .catch((error: Error) => {
-        toast({ tone: 'error', title: "Couldn't check your workspace", description: error.message })
+        toast.error("Couldn't check your workspace", { description: error.message })
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -700,8 +741,7 @@ function WorkspaceStep({ email, onDone }: { email: string; onDone: () => void })
       const workspace = existing ?? (await loadOnboardingWorkspace({ name: workspaceName, idCode: chosenId, icon: chosenIcon }))
       if (!workspace) throw new Error('Enter a workspace name.')
       if (workspace.role === 'owner') {
-        const password = peekLoginPassword()
-        const currentPassword = password?.email === email ? password.password : passwordInput
+        const currentPassword = loginPasswordFor(email) ?? passwordInput
         if (!currentPassword) throw new Error('Enter your password to unlock the workspace.')
         rememberLoginPassword(email, currentPassword)
         await finishOnboardingWorkspace(email, currentPassword, workspace)
@@ -713,11 +753,7 @@ function WorkspaceStep({ email, onDone }: { email: string; onDone: () => void })
       onDone()
       return true
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't create your workspace",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't create your workspace", { description: error instanceof Error ? error.message : 'Try again.' })
       return false
     } finally {
       setPending(false)

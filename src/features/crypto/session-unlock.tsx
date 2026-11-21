@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { bindSessionKeys } from '@/features/crypto/field-mirror'
 import { clearLoginPassword, hasLoginPassword, peekLoginPassword } from '@/features/crypto/login-secret'
@@ -33,11 +33,7 @@ export function SessionUnlock({ children }: { children: ReactNode }) {
       .catch((error: unknown) => {
         if (cancelled) return
         clearLoginPassword()
-        toast({
-          tone: 'error',
-          title: "Couldn't open your workspaces",
-          description: error instanceof Error ? error.message : 'Try again.',
-        })
+        toast.error("Couldn't open your workspaces", { description: error instanceof Error ? error.message : 'Try again.' })
       })
       .finally(() => {
         if (!cancelled) setOpening(false)

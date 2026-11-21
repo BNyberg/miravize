@@ -4,7 +4,8 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { AuthShell } from '@/components/auth/auth-shell'
 import { FaviconSync, SeedSavedTheme } from '@/components/theme-provider'
 import { AppShell } from '@/components/layout/app-shell'
-import { ToastHost } from '@/components/ui/toast'
+import { useTheme } from 'next-themes'
+import { Toaster } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAuth } from '@/features/auth/auth-context'
 import { useOnboardingStatus } from '@/features/onboarding/use-onboarding'
@@ -34,6 +35,11 @@ import { DisclosureGate } from '@/components/privacy/disclosure-dialog'
 import { DISCLOSURES } from '@/features/onboarding/disclosures'
 import { TimerPage } from '@/pages/timer-page'
 import { ReportPage } from '@/pages/reports-page'
+
+function AppToaster() {
+  const { resolvedTheme } = useTheme()
+  return <Toaster closeButton position="top-right" theme={resolvedTheme === 'dark' ? 'dark' : 'light'} />
+}
 
 function destination(gate: ReturnType<typeof useAuth>['gate'], search: string, complete: boolean) {
   const requested = new URLSearchParams(search).get('next') || '/timer'
@@ -157,7 +163,7 @@ export function App() {
     <TooltipProvider>
     <FaviconSync />
     <SeedSavedTheme />
-    <ToastHost />
+    <AppToaster />
     <Routes>
       <Route element={<AuthShell />}>
         <Route path="/reset-password" element={<ResetPasswordPage />} />

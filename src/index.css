@@ -169,6 +169,31 @@
   transform: none;
 }
 
+[data-sonner-toaster][data-sonner-theme='light'],
+[data-sonner-toaster][data-sonner-theme='dark'] {
+  --normal-bg: var(--card);
+  --normal-bg-hover: var(--muted);
+  --normal-border: var(--border);
+  --normal-border-hover: var(--border);
+  --normal-text: var(--card-foreground);
+}
+
+[data-sonner-toast][data-type='success'] {
+  border-color: var(--primary);
+}
+
+[data-sonner-toast][data-type='success'] [data-icon] {
+  color: var(--primary);
+}
+
+[data-sonner-toast][data-type='error'] {
+  border-color: var(--destructive);
+}
+
+[data-sonner-toast][data-type='error'] [data-icon] {
+  color: var(--destructive);
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;

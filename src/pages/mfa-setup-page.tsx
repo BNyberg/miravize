@@ -7,7 +7,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import {
   BACKUP_CONFIRMATION,
@@ -51,7 +51,7 @@ export function MfaSetupPage() {
     void enrollAuthenticator(0, { force: reenroll }).then((result) => {
       if (!alive) return
       if ('error' in result) {
-        toast({ tone: 'error', title: "Couldn't start setup", description: result.error })
+        toast.error("Couldn't start setup", { description: result.error })
         return
       }
       if ('verified' in result) {
@@ -77,7 +77,7 @@ export function MfaSetupPage() {
     void replaceBackupCodes(nextCodes).catch((error: Error) => {
       codesRequested.current = false
       setCodes([])
-      toast({ tone: 'error', title: "Couldn't save backup codes", description: error.message })
+      toast.error("Couldn't save backup codes", { description: error.message })
     })
   }, [assurance.currentLevel, codes.length, step])
 
@@ -90,7 +90,7 @@ export function MfaSetupPage() {
     if (challenge.error) {
       setHold(null)
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't verify code", description: challenge.error.message })
+      toast.error("Couldn't verify code", { description: challenge.error.message })
       return
     }
     const verified = await supabase.auth.mfa.verify({
@@ -102,7 +102,7 @@ export function MfaSetupPage() {
       setHold(null)
       setPending(false)
       setCode('')
-      toast({ tone: 'error', title: "Couldn't verify code", description: verified.error.message })
+      toast.error("Couldn't verify code", { description: verified.error.message })
       return
     }
     const nextCodes = createBackupCodes()
@@ -111,11 +111,7 @@ export function MfaSetupPage() {
     } catch (error) {
       setHold(null)
       setPending(false)
-      toast({
-        tone: 'error',
-        title: "Couldn't save backup codes",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't save backup codes", { description: error instanceof Error ? error.message : 'Try again.' })
       return
     }
     const name = deviceName.trim()
@@ -127,7 +123,7 @@ export function MfaSetupPage() {
       },
     })
     if (saved.error) {
-      toast({ tone: 'error', title: "Couldn't save authenticator", description: saved.error.message })
+      toast.error("Couldn't save authenticator", { description: saved.error.message })
     } else {
       await supabase.auth.refreshSession()
       await refreshAssurance()
@@ -145,7 +141,7 @@ export function MfaSetupPage() {
       const removed = await supabase.auth.mfa.unenroll({ factorId })
       if (removed.error && !factorIsMissing(removed.error)) {
         setPending(false)
-        toast({ tone: 'error', title: "Couldn't skip setup", description: removed.error.message })
+        toast.error("Couldn't skip setup", { description: removed.error.message })
         return
       }
     }
@@ -154,7 +150,7 @@ export function MfaSetupPage() {
     })
     if (saved.error) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't skip setup", description: saved.error.message })
+      toast.error("Couldn't skip setup", { description: saved.error.message })
       return
     }
     setHold(null)
@@ -172,23 +168,19 @@ export function MfaSetupPage() {
         data: { mfa_backup_pending: false, mfa_reenroll_required: false, mfa_setup_skipped: false },
       })
       if (saved.error) {
-        toast({ tone: 'error', title: "Couldn't finish setup", description: saved.error.message })
+        toast.error("Couldn't finish setup", { description: saved.error.message })
         return
       }
       const refreshed = await supabase.auth.refreshSession()
       if (refreshed.error) {
-        toast({ tone: 'error', title: "Couldn't finish setup", description: refreshed.error.message })
+        toast.error("Couldn't finish setup", { description: refreshed.error.message })
         return
       }
       setHold(null)
       await refreshAssurance()
       navigate(next, { replace: true })
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't finish setup",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't finish setup", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -199,26 +191,18 @@ export function MfaSetupPage() {
       await navigator.clipboard.writeText(codes.join('\n'))
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
-      toast({ tone: 'success', title: 'Backup codes copied to clipboard.' })
+      toast.success('Backup codes copied to clipboard.')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't copy backup codes",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't copy backup codes", { description: error instanceof Error ? error.message : 'Try again.' })
     }
   }
 
   async function copySecret() {
     try {
       await navigator.clipboard.writeText(secret.replace(/\s/g, ''))
-      toast({ tone: 'success', title: 'Code copied to clipboard' })
+      toast.success('Code copied to clipboard')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't copy code",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't copy code", { description: error instanceof Error ? error.message : 'Try again.' })
     }
   }
 

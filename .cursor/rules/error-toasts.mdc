@@ -9,7 +9,7 @@ These are product mandates, not optional UX suggestions.
 
 ## Failures use an error toast
 
-- A failed user action shows `toast({ tone: 'error', title, description })` from `@/components/ui/toast`.
+- A failed user action shows `toast.error(title, { description })` from `sonner`.
 - Do not render the failure as inline page text.
 - The title says what failed. The description is the specific message.
 

@@ -29,7 +29,7 @@ import { activityGroups } from '@/components/timer/activity-groups'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/features/auth/auth-context'
 import { useOwnAvatar } from '@/features/crypto/use-own-avatar'
@@ -796,11 +796,7 @@ function EntryEditor({
         } catch (err) {
           pendingCommit.current = null
           setFields(previousFields)
-          toast({
-            tone: 'error',
-            title: 'Could not save entry',
-            description: err instanceof Error ? err.message : 'Try again.',
-          })
+          toast.error('Could not save entry', { description: err instanceof Error ? err.message : 'Try again.' })
           break
         }
       }

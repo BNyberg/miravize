@@ -6,7 +6,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { isValidEmail } from '@/lib/email'
 import { supabase } from '@/lib/supabase'
 
@@ -26,7 +26,7 @@ export function ForgotPasswordPage() {
     })
     setPending(false)
     if (error) {
-      toast({ tone: 'error', title: "Couldn't send reset email", description: error.message })
+      toast.error("Couldn't send reset email", { description: error.message })
       return
     }
     setMessage('Check your email for a link to choose a new password.')

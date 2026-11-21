@@ -1,4 +1,4 @@
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { decryptField, encryptField, type FieldCiphertext } from '@/lib/crypto/formats'
 import { supabase } from '@/lib/supabase'
 import { base64UrlToBytes, bytesToBase64Url, zeroBytes } from '@/lib/crypto/bytes'
@@ -191,10 +191,6 @@ export async function mirrorSensitive(table: SensitiveTable, recordId: string, f
     if (!held) return
     await sealFields(table, recordId, fields, held.key, held.workspaceId, held.keyVersion)
   } catch (error) {
-    toast({
-      tone: 'error',
-      title: "Couldn't update the encrypted copy",
-      description: error instanceof Error ? error.message : 'Try again.',
-    })
+    toast.error("Couldn't update the encrypted copy", { description: error instanceof Error ? error.message : 'Try again.' })
   }
 }

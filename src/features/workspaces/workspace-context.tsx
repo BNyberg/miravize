@@ -3,10 +3,10 @@ import { revealList } from '@/features/crypto/read-copy'
 import { qk } from '@/lib/query-keys'
 import { supabase } from '@/lib/supabase'
 import type { Membership, Workspace } from '@/types'
+import { ALL_WORKSPACES, resolveWorkspaceSelection } from '@/features/workspaces/resolve-workspace'
 import { useQuery } from '@tanstack/react-query'
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 
-const ALL = 'all'
 const STORAGE_KEY = 'miravize-workspace-id'
 const LEGACY_STORAGE_KEY = 'genki-workspace-id'
 
@@ -38,7 +38,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE_KEY, legacy)
       return legacy
     }
-    return ALL
+    return ALL_WORKSPACES
   })
 
   const { data = [], isLoading } = useQuery({
@@ -67,17 +67,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
 
   const value = useMemo(() => {
-    const current = data.find((m) => m.workspace_id === workspaceId) ?? null
-    const validId =
-      workspaceId === ALL || current ? workspaceId : (data[0]?.workspace_id ?? ALL)
+    const selection = resolveWorkspaceSelection(workspaceId, data)
     return {
-      workspaceId: validId,
+      workspaceId: selection.validId,
       setWorkspaceId,
-      isAll: validId === ALL,
+      isAll: selection.isAll,
       memberships: data,
-      current,
+      current: selection.current,
       workspaces: data.map((m) => m.workspace),
-      canManage: manages(current?.role),
+      canManage: manages(selection.current?.role),
       canManageWorkspace: (id: string) => manages(data.find((membership) => membership.workspace_id === id)?.role),
       loading: isLoading,
     }
@@ -92,4 +90,4 @@ export function useWorkspace() {
   return ctx
 }
 
-export { ALL as ALL_WORKSPACES }
+export { ALL_WORKSPACES }

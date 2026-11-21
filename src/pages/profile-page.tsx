@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { ZOOM_STEPS } from '@/components/timer/week-layout'
 import { useAuth } from '@/features/auth/auth-context'
 import { publishDisplayName } from '@/features/crypto/publish-display-name'
@@ -89,11 +89,7 @@ export function ProfilePage() {
       setName(trimmed)
       await queryClient.invalidateQueries()
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't save account",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't save account", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setSavingAccount(false)
     }

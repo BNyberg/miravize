@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { listHeldWorkspaceKeys } from '@/features/crypto/field-mirror'
 import { base64UrlToBytes } from '@/lib/crypto/bytes'
 import { sealWorkspaceKey } from '@/lib/crypto/workspace-keys'
@@ -75,11 +75,7 @@ export function ShareWorkspaceKeys() {
       } catch (error) {
         if (notified) return
         notified = true
-        toast({
-          tone: 'error',
-          title: "Couldn't share a workspace key",
-          description: errorMessage(error) || 'Try again.',
-        })
+        toast.error("Couldn't share a workspace key", { description: errorMessage(error) || 'Try again.' })
       }
     }
     void run()

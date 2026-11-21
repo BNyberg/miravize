@@ -6,3 +6,13 @@ compatibility_date = "2026-11-20"
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
+
+# Manual staging deploy only. `wrangler deploy` without --env stays on miravize.
+[env.staging]
+name = "miravize-staging"
+
+[env.staging.vars]
+
+[env.staging.assets]
+directory = "./dist"
+not_found_handling = "single-page-application"

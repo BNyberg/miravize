@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router'
 
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { loadCryptoProfile } from '@/lib/crypto/account-profile'
 import { supabase } from '@/lib/supabase'
@@ -24,11 +24,7 @@ export function EncryptionGate({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        toast({
-          tone: 'error',
-          title: "Couldn't check encryption setup",
-          description: error instanceof Error ? error.message : 'Could not check encryption setup.',
-        })
+        toast.error("Couldn't check encryption setup", { description: error instanceof Error ? error.message : 'Could not check encryption setup.' })
         setStatus('error')
       })
     return () => {

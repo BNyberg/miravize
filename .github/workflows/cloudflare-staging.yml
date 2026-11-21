@@ -1,0 +1,65 @@
+name: Cloudflare Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cloudflare-staging-deployment:
+    name: Cloudflare Staging Deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Require Cloudflare credentials
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "Set repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID before running this workflow."
+            echo "The token needs Workers Scripts deploy permission for miravize-staging only."
+            exit 1
+          fi
+      - run: npm run check:build
+      - name: Deploy the staging worker
+        run: |
+          set -o pipefail
+          npx wrangler deploy --env staging --no-autoconfig | tee deploy-output.txt
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy-output.txt | head -n 1)
+          if [ -z "$url" ]; then
+            echo "Wrangler did not print a workers.dev URL."
+            exit 1
+          fi
+          if ! grep -q 'miravize-staging' deploy-output.txt; then
+            echo "Deploy output did not mention miravize-staging. Refusing to continue."
+            exit 1
+          fi
+          echo "STAGING_URL=$url" >> "$GITHUB_ENV"
+      - name: Smoke test the staging URL
+        run: |
+          set -eu
+          html=$(curl --fail --silent --show-error "$STAGING_URL/")
+          printf '%s' "$html" | grep -q 'id="root"'
+          asset=$(printf '%s' "$html" | grep -oE '/assets/[^"]+\.js' | head -n 1)
+          if [ -z "$asset" ]; then
+            echo "Staging index.html did not reference a JavaScript asset."
+            exit 1
+          fi
+          curl --fail --silent --show-error -o /tmp/staging-asset.js "$STAGING_URL$asset"
+          if head -c 32 /tmp/staging-asset.js | grep -qi '<!doctype\|<html'; then
+            echo "Staging JavaScript asset was HTML."
+            exit 1
+          fi
+          curl --fail --silent --show-error "$STAGING_URL/login" | grep -q 'id="root"'
+          echo "Staging smoke checks passed for $STAGING_URL"
+          echo "An unknown /assets path is not a failure: Workers SPA mode serves index.html for every unmatched path."

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { metadataFlag } from '@/features/auth/mfa'
 import { passwordMatchesCurrent } from '@/features/auth/verify-password'
@@ -107,7 +107,7 @@ export function ResetPasswordPage() {
         const description = error instanceof Error ? error.message : 'Try again.'
         setCryptoReady(null)
         setProfileError(description)
-        toast({ tone: 'error', title: "Couldn't check encryption", description })
+        toast.error("Couldn't check encryption", { description })
       })
     return () => {
       cancelled = true
@@ -130,7 +130,7 @@ export function ResetPasswordPage() {
           if (cancelled) return
           setPasswordCheck({ password, status: 'skipped' })
           const description = error instanceof Error ? error.message : 'Try again.'
-          toast({ tone: 'error', title: "Couldn't check password", description })
+          toast.error("Couldn't check password", { description })
         })
     }, 400)
     return () => {
@@ -156,7 +156,7 @@ export function ResetPasswordPage() {
       const { error } = await supabase.auth.updateUser({ password: nextPassword })
       if (error) {
         if (isSamePasswordError(error)) setPasswordCheck({ password: nextPassword, status: 'same' })
-        toast({ tone: 'error', title: "Couldn't update password", description: error.message })
+        toast.error("Couldn't update password", { description: error.message })
         return
       }
       passwordRef.current = nextPassword
@@ -175,11 +175,7 @@ export function ResetPasswordPage() {
       setCopied(false)
       setReplacement(created)
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: wrapSaved ? "Couldn't create a new recovery key" : "Couldn't update the encryption key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error(wrapSaved ? "Couldn't create a new recovery key" : "Couldn't update the encryption key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -199,11 +195,7 @@ export function ResetPasswordPage() {
       setCopied(false)
       setReplacement(created)
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't create a new recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't create a new recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -217,11 +209,7 @@ export function ResetPasswordPage() {
       await commitRecoveryRotation(user.id, user.email, passwordRef.current, replacement)
       continueAfterReset()
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't replace the recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't replace the recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -232,13 +220,9 @@ export function ResetPasswordPage() {
     try {
       await navigator.clipboard.writeText(formatRecoveryKey(replacement.recoveryKey))
       setCopied(true)
-      toast({ tone: 'success', title: 'Recovery key copied to clipboard.' })
+      toast.success('Recovery key copied to clipboard.')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't copy recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't copy recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     }
   }
 

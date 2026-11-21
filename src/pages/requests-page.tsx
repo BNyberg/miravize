@@ -26,7 +26,7 @@ import { qk } from '@/lib/query-keys'
 import { startTimer, stopTimer } from '@/lib/timer'
 import { supabase } from '@/lib/supabase'
 import { readRequestsIncludeDoneStored, readUserPreferences } from '@/lib/user-preferences'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import type { SupportRequest, TaskStatus } from '@/types'
 
 const STATUSES: TaskStatus[] = ['todo', 'doing', 'done']
@@ -265,7 +265,7 @@ export function RequestsPage() {
       void qc.invalidateQueries({ queryKey: qk.running })
       void qc.invalidateQueries({ queryKey: ['entries'] })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not log request', description: err.message }),
+    onError: (err: Error) => toast.error('Could not log request', { description: err.message }),
   })
 
   const patch = useMutation({
@@ -290,7 +290,7 @@ export function RequestsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['requests'] })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not update request', description: err.message }),
+    onError: (err: Error) => toast.error('Could not update request', { description: err.message }),
   })
 
   const assign = useMutation({
@@ -304,7 +304,7 @@ export function RequestsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['requests'] })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not change assignee', description: err.message }),
+    onError: (err: Error) => toast.error('Could not change assignee', { description: err.message }),
   })
 
   const track = useMutation({
@@ -340,7 +340,7 @@ export function RequestsPage() {
       void qc.invalidateQueries({ queryKey: ['entries'] })
       void qc.invalidateQueries({ queryKey: ['requests'] })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not start tracking', description: err.message }),
+    onError: (err: Error) => toast.error('Could not start tracking', { description: err.message }),
   })
 
   const stop = useMutation({
@@ -349,7 +349,7 @@ export function RequestsPage() {
       void qc.invalidateQueries({ queryKey: qk.running })
       void qc.invalidateQueries({ queryKey: ['entries'] })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not stop tracking', description: err.message }),
+    onError: (err: Error) => toast.error('Could not stop tracking', { description: err.message }),
   })
 
   const remove = useMutation({
@@ -367,7 +367,7 @@ export function RequestsPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['requests'] })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not delete request', description: err.message }),
+    onError: (err: Error) => toast.error('Could not delete request', { description: err.message }),
   })
 
   function exportCsv() {

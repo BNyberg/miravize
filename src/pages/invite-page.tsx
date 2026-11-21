@@ -4,7 +4,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router'
 import { AuthSweepCopy } from '@/components/auth/auth-sweep-copy'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { supabase } from '@/lib/supabase'
 
@@ -35,7 +35,7 @@ export function InvitePage() {
         if (error) {
           setPreview(null)
           setMissing(true)
-          toast({ tone: 'error', title: "Couldn't open this invite", description: error.message })
+          toast.error("Couldn't open this invite", { description: error.message })
           return
         }
         const row = (Array.isArray(data) ? data[0] : data) as InvitePreview | undefined
@@ -58,7 +58,7 @@ export function InvitePage() {
     const { error } = await supabase.rpc('accept_workspace_invite', { p_token: token })
     setPending(false)
     if (error) {
-      toast({ tone: 'error', title: "Couldn't join the workspace", description: error.message })
+      toast.error("Couldn't join the workspace", { description: error.message })
       return
     }
     navigate('/timer')

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { publishAvatar } from '@/features/crypto/publish-avatar'
 import {
@@ -47,11 +47,7 @@ export function AvatarDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   function choose(file: File | undefined) {
     if (!file) return
     if (!isAvatarImage(file)) {
-      toast({
-        tone: 'error',
-        title: "Couldn't use that file",
-        description: 'Use a JPEG, PNG, WebP, GIF, or AVIF image.',
-      })
+      toast.error("Couldn't use that file", { description: 'Use a JPEG, PNG, WebP, GIF, or AVIF image.' })
       return
     }
     setCrop(EMPTY_CROP)
@@ -113,7 +109,7 @@ export function AvatarDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       onOpenChange(false)
     } catch (error) {
       const description = error instanceof Error ? error.message : 'Try again.'
-      toast({ tone: 'error', title: "Couldn't save profile picture", description })
+      toast.error("Couldn't save profile picture", { description })
       setSaving(false)
     }
   }

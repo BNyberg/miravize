@@ -6,7 +6,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { OTP_LENGTH, clearAuthenticatorEnroll, otpButtonLabel } from '@/features/auth/mfa'
 import { functionError } from '@/lib/function-error'
@@ -32,19 +32,19 @@ export function MfaChallengeForm({
     const factors = await supabase.auth.mfa.listFactors()
     if (factors.error) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't check authenticator", description: factors.error.message })
+      toast.error("Couldn't check authenticator", { description: factors.error.message })
       return
     }
     const factor = factors.data.totp.find((item) => item.status === 'verified') ?? factors.data.totp[0]
     if (!factor) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't check authenticator", description: 'No authenticator is enrolled.' })
+      toast.error("Couldn't check authenticator", { description: 'No authenticator is enrolled.' })
       return
     }
     const challenge = await supabase.auth.mfa.challenge({ factorId: factor.id })
     if (challenge.error) {
       setPending(false)
-      toast({ tone: 'error', title: "Couldn't check authenticator", description: challenge.error.message })
+      toast.error("Couldn't check authenticator", { description: challenge.error.message })
       return
     }
     const verified = await supabase.auth.mfa.verify({
@@ -55,7 +55,7 @@ export function MfaChallengeForm({
     if (verified.error) {
       setPending(false)
       setCode('')
-      toast({ tone: 'error', title: "Couldn't log in", description: verified.error.message })
+      toast.error("Couldn't log in", { description: verified.error.message })
       return
     }
     await refreshAssurance()
@@ -71,11 +71,7 @@ export function MfaChallengeForm({
     })
     if (error) {
       setPending(false)
-      toast({
-        tone: 'error',
-        title: "Couldn't use backup code",
-        description: await functionError(error, 'That backup code is not valid.'),
-      })
+      toast.error("Couldn't use backup code", { description: await functionError(error, 'That backup code is not valid.') })
       return
     }
     clearAuthenticatorEnroll()

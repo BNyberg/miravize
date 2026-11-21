@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { useWorkspace } from '@/features/workspaces/workspace-context'
 import { readMode, subscribeReadMode } from '@/features/crypto/field-mirror'
@@ -68,17 +68,9 @@ function UnlockPanel({ workspaces }: { workspaces: Workspace[] }) {
       }
       setPassword('')
       await refresh()
-      toast({
-        tone: 'success',
-        title: 'Workspace unlocked',
-        description: 'The names are read from the encrypted copy.',
-      })
+      toast.success('Workspace unlocked', { description: 'The names are read from the encrypted copy.' })
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't unlock the workspace",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't unlock the workspace", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -92,17 +84,9 @@ function UnlockPanel({ workspaces }: { workspaces: Workspace[] }) {
       await unlockWorkspacesWithRecovery(recoveryKey)
       setRecoveryKey('')
       await refresh()
-      toast({
-        tone: 'success',
-        title: 'Recovery key unlocked the workspaces',
-        description: 'The names are read from the encrypted copy.',
-      })
+      toast.success('Recovery key unlocked the workspaces', { description: 'The names are read from the encrypted copy.' })
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't unlock with the recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't unlock with the recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -120,17 +104,9 @@ function UnlockPanel({ workspaces }: { workspaces: Workspace[] }) {
       }
       setPassword('')
       await refresh()
-      toast({
-        tone: 'success',
-        title: 'Encryption key rotated',
-        description: 'The names are read from the new encrypted copy.',
-      })
+      toast.success('Encryption key rotated', { description: 'The names are read from the new encrypted copy.' })
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't finish the key rotation",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't finish the key rotation", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }

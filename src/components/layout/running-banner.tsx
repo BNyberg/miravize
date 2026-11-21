@@ -6,7 +6,7 @@ import { EntryMetaChips } from '@/components/timer/entry-editor'
 import { QuickStartMenu } from '@/components/timer/quick-start-menu'
 import { WorkspaceMark } from '@/components/workspaces/workspace-icon'
 import { Button } from '@/components/ui/button'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { revealList } from '@/features/crypto/read-copy'
 import { useCatalog } from '@/features/projects/use-catalog'
 import { useNow } from '@/features/timer/use-now'
@@ -120,13 +120,13 @@ export function RunningBanner({ onPresenceChange }: { onPresenceChange?: (presen
       if (error) throw error
     },
     onSuccess: refresh,
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not stop tracking', description: err.message }),
+    onError: (err: Error) => toast.error('Could not stop tracking', { description: err.message }),
   })
 
   const quickStart = useMutation({
     mutationFn: startTimer,
     onSuccess: refresh,
-    onError: (err: Error) => toast({ tone: 'error', title: 'Could not switch tracking', description: err.message }),
+    onError: (err: Error) => toast.error('Could not switch tracking', { description: err.message }),
   })
 
   const describe = useMutation({

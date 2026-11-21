@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { mirrorSensitive } from '@/features/crypto/field-mirror'
 import { useCatalog } from '@/features/projects/use-catalog'
@@ -76,7 +76,7 @@ function failMessage(err: unknown) {
 async function deleteActivity(id: string, onSaved: () => void) {
   const { error } = await supabase.from('activities').delete().eq('id', id)
   if (error) {
-    toast({ tone: 'error', title: 'Could not delete activity', description: failMessage(error) })
+    toast.error('Could not delete activity', { description: failMessage(error) })
     return
   }
   onSaved()
@@ -85,11 +85,7 @@ async function deleteActivity(id: string, onSaved: () => void) {
 async function setActivityDefault(activity: Activity, onSaved: () => void) {
   const { error } = await supabase.from('activities').update({ is_default: !activity.is_default }).eq('id', activity.id)
   if (error) {
-    toast({
-      tone: 'error',
-      title: activity.is_default ? 'Could not clear default' : 'Could not set default',
-      description: failMessage(error),
-    })
+    toast.error(activity.is_default ? 'Could not clear default' : 'Could not set default', { description: failMessage(error) })
   } else {
     onSaved()
   }
@@ -98,7 +94,7 @@ async function setActivityDefault(activity: Activity, onSaved: () => void) {
 async function renameActivity(id: string, name: string, onSaved: () => void) {
   const { error } = await supabase.from('activities').update({ name }).eq('id', id)
   if (error) {
-    toast({ tone: 'error', title: 'Could not rename activity', description: failMessage(error) })
+    toast.error('Could not rename activity', { description: failMessage(error) })
     return false
   }
   await mirrorSensitive('activities', id, { name })
@@ -113,7 +109,7 @@ async function moveActivity(
 ) {
   const { error } = await supabase.from('activities').update(patch).eq('id', id)
   if (error) {
-    toast({ tone: 'error', title: 'Could not move activity', description: failMessage(error) })
+    toast.error('Could not move activity', { description: failMessage(error) })
     return false
   }
   onSaved()
@@ -670,7 +666,7 @@ function ClientEditor({
     }
     const targetWorkspaceId = editing?.workspace_id ?? createWorkspaceId
     if (!targetWorkspaceId) {
-      toast({ tone: 'error', title: 'Could not save client', description: 'Choose a workspace.' })
+      toast.error('Could not save client', { description: 'Choose a workspace.' })
       return
     }
     onError(null)
@@ -720,9 +716,9 @@ function ClientEditor({
       }
       setSnapshot({ name: saved.name, billable: saved.default_billable, overrides: { ...overrides } })
       onSaved()
-      toast({ tone: 'success', title: 'Client saved', description: saved.name })
+      toast.success('Client saved', { description: saved.name })
     } catch (err) {
-      toast({ tone: 'error', title: 'Could not save client', description: failMessage(err) })
+      toast.error('Could not save client', { description: failMessage(err) })
     } finally {
       setSaving(false)
     }
@@ -1070,13 +1066,13 @@ function ProjectEditor({
     if (!targetWorkspaceId) {
       const msg = 'Choose a workspace.'
       setSaveHint(msg)
-      toast({ tone: 'error', title: 'Could not save project', description: msg })
+      toast.error('Could not save project', { description: msg })
       return
     }
     const reason = invalidReason()
     if (reason) {
       setSaveHint(reason)
-      toast({ tone: 'error', title: 'Could not save project', description: reason })
+      toast.error('Could not save project', { description: reason })
       return
     }
     setSaveHint(null)
@@ -1192,11 +1188,11 @@ function ProjectEditor({
       setDraftAliases(leftoverAliases)
       onSaved()
       if (draftError) throw new Error(draftError)
-      toast({ tone: 'success', title: 'Project saved', description: saved.name })
+      toast.success('Project saved', { description: saved.name })
     } catch (err) {
       const msg = failMessage(err)
       setSaveHint(msg)
-      toast({ tone: 'error', title: 'Could not save project', description: msg })
+      toast.error('Could not save project', { description: msg })
     } finally {
       setSaving(false)
     }
@@ -1223,9 +1219,9 @@ function ProjectEditor({
         qc.invalidateQueries({ queryKey: qk.projectClients(catalogWorkspaceId) }),
         qc.invalidateQueries({ queryKey: qk.running }),
       ])
-      toast({ tone: 'success', title: 'Project deleted', description: removedName })
+      toast.success('Project deleted', { description: removedName })
     } catch (err) {
-      toast({ tone: 'error', title: 'Could not delete project', description: failMessage(err) })
+      toast.error('Could not delete project', { description: failMessage(err) })
     }
   }
 
@@ -1311,13 +1307,13 @@ function ProjectEditor({
                   shortcut: value,
                 }).select('id').single()
                 if (error) {
-                  toast({ tone: 'error', title: 'Could not add alias', description: failMessage(error) })
+                  toast.error('Could not add alias', { description: failMessage(error) })
                   return
                 }
                 await mirrorSensitive('project_aliases', data.id, { shortcut: value })
                 setShortcut('')
                 onSaved()
-                toast({ tone: 'success', title: 'Alias added', description: value })
+                toast.success('Alias added', { description: value })
               }}
             >
               <Input
@@ -1563,7 +1559,7 @@ function ProjectEditor({
                   name: value,
                 }).select('id').single()
                 if (error) {
-                  toast({ tone: 'error', title: 'Could not add activity', description: failMessage(error) })
+                  toast.error('Could not add activity', { description: failMessage(error) })
                   return
                 }
                 await mirrorSensitive('activities', data.id, { name: value })
@@ -1692,7 +1688,7 @@ function ProjectEditor({
             const previous = renamingDraft
             if (!previous) return false
             if (draftActivities.some((item) => item !== previous && item.toLowerCase() === next.toLowerCase())) {
-              toast({ tone: 'error', title: 'Could not rename activity', description: 'An activity with this name already exists.' })
+              toast.error('Could not rename activity', { description: 'An activity with this name already exists.' })
               return false
             }
             setDraftActivities((rows) => rows.map((row) => (row === previous ? next : row)))
@@ -1712,7 +1708,7 @@ function ProjectEditor({
             if (!current) return false
             if ('draft' in current) {
               if (draftAliases.some((item) => item !== current.draft && item.toLowerCase() === next.toLowerCase())) {
-                toast({ tone: 'error', title: 'Could not rename alias', description: 'An alias with this shortcut already exists.' })
+                toast.error('Could not rename alias', { description: 'An alias with this shortcut already exists.' })
                 return false
               }
               setDraftAliases((rows) => rows.map((row) => (row === current.draft ? next : row)))
@@ -1720,7 +1716,7 @@ function ProjectEditor({
             }
             const { error } = await supabase.from('project_aliases').update({ shortcut: next }).eq('id', current.id)
             if (error) {
-              toast({ tone: 'error', title: 'Could not rename alias', description: failMessage(error) })
+              toast.error('Could not rename alias', { description: failMessage(error) })
               return false
             }
             await mirrorSensitive('project_aliases', current.id, { shortcut: next })
@@ -1747,7 +1743,7 @@ function ProjectEditor({
             void (async () => {
               const { error } = await supabase.from('project_aliases').delete().eq('id', id)
               if (error) {
-                toast({ tone: 'error', title: 'Could not delete alias', description: failMessage(error) })
+                toast.error('Could not delete alias', { description: failMessage(error) })
                 return
               }
               onSaved()

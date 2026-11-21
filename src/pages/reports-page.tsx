@@ -5,7 +5,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -771,19 +771,11 @@ export function ReportPage() {
 
   async function generateNarrative(layout: 'text' | 'full' = 'text') {
     if (narrativeRangeTooLong) {
-      toast({
-        tone: 'error',
-        title: 'Could not generate the report',
-        description: `Pick a range of ${MAX_NARRATIVE_DAYS} days or less.`,
-      })
+      toast.error('Could not generate the report', { description: `Pick a range of ${MAX_NARRATIVE_DAYS} days or less.` })
       return
     }
     if (report.included.length === 0) {
-      toast({
-        tone: 'error',
-        title: 'Could not generate the report',
-        description: 'No time entries in this range.',
-      })
+      toast.error('Could not generate the report', { description: 'No time entries in this range.' })
       return
     }
     setGeneratingReport(true)
@@ -824,11 +816,7 @@ export function ReportPage() {
         )
       }
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: 'Could not generate the report',
-        description: error instanceof Error ? error.message : 'Something went wrong.',
-      })
+      toast.error('Could not generate the report', { description: error instanceof Error ? error.message : 'Something went wrong.' })
     } finally {
       setGeneratingReport(false)
     }
@@ -850,11 +838,7 @@ export function ReportPage() {
         `miravize_report_${from}_to_${to}.pdf`,
       )
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: 'Could not export the PDF',
-        description: error instanceof Error ? error.message : 'Something went wrong.',
-      })
+      toast.error('Could not export the PDF', { description: error instanceof Error ? error.message : 'Something went wrong.' })
     } finally {
       setExportingPdf(false)
     }

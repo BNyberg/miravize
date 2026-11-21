@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { changePassword } from '@/features/auth/change-password'
 import { useAuth } from '@/features/auth/auth-context'
 import {
@@ -58,11 +58,7 @@ export function SecurityCard() {
 
   useEffect(() => {
     if (!encryption.error) return
-    toast({
-      tone: 'error',
-      title: "Couldn't load encryption key",
-      description: encryption.error instanceof Error ? encryption.error.message : 'Try again.',
-    })
+    toast.error("Couldn't load encryption key", { description: encryption.error instanceof Error ? encryption.error.message : 'Try again.' })
   }, [encryption.error])
 
   function openCodes() {
@@ -79,11 +75,7 @@ export function SecurityCard() {
       await replaceBackupCodes(codes)
       setCodesOpen(false)
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't save backup codes",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't save backup codes", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -114,11 +106,7 @@ export function SecurityCard() {
       await refreshAssurance()
       setRemoveOpen(false)
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't remove two-factor authentication",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't remove two-factor authentication", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -128,13 +116,9 @@ export function SecurityCard() {
     try {
       await navigator.clipboard.writeText(codes.join('\n'))
       setCopied(true)
-      toast({ tone: 'success', title: 'Backup codes copied to clipboard.' })
+      toast.success('Backup codes copied to clipboard.')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't copy backup codes",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't copy backup codes", { description: error instanceof Error ? error.message : 'Try again.' })
     }
   }
 
@@ -340,11 +324,7 @@ function RecoveryKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       setCopied(false)
       setReplacement(created)
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't create a new recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't create a new recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -357,17 +337,9 @@ function RecoveryKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange
     try {
       await commitRecoveryRotation(user.id, user.email, passwordRef.current, replacement)
       close()
-      toast({
-        tone: 'success',
-        title: 'Recovery key replaced',
-        description: 'The previous recovery key no longer opens the encryption key. Your password is unchanged.',
-      })
+      toast.success('Recovery key replaced', { description: 'The previous recovery key no longer opens the encryption key. Your password is unchanged.' })
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't replace the recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't replace the recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -378,13 +350,9 @@ function RecoveryKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange
     try {
       await navigator.clipboard.writeText(formatRecoveryKey(replacement.recoveryKey))
       setCopied(true)
-      toast({ tone: 'success', title: 'Recovery key copied to clipboard.' })
+      toast.success('Recovery key copied to clipboard.')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't copy recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't copy recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     }
   }
 
@@ -536,13 +504,9 @@ function ChangePasswordDialog({
       await changePassword(email, current, next)
       clear()
       onOpenChange(false)
-      toast({ tone: 'success', title: 'Password changed.' })
+      toast.success('Password changed.')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't change password",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't change password", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }

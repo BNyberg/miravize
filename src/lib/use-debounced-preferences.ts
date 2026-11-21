@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { supabase } from '@/lib/supabase'
 import { readUserPreferences, samePreferences, type UserPreferences } from '@/lib/user-preferences'
@@ -47,7 +47,7 @@ export function useDebouncedPreferences() {
     if (error) {
       pendingRef.current = pendingRef.current ?? next
       setDraft(pendingRef.current)
-      toast({ tone: 'error', title: "Couldn't save preferences", description: error.message })
+      toast.error("Couldn't save preferences", { description: error.message })
       return
     }
 

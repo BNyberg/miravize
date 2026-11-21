@@ -7,7 +7,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import { useOnboardingStatus } from '@/features/onboarding/use-onboarding'
 import {
@@ -70,11 +70,7 @@ export function EncryptionSetupPage() {
       .catch((error: unknown) => {
         if (cancelled) return
         setChecking(false)
-        toast({
-          tone: 'error',
-          title: "Couldn't check encryption setup",
-          description: error instanceof Error ? error.message : 'Try again.',
-        })
+        toast.error("Couldn't check encryption setup", { description: error instanceof Error ? error.message : 'Try again.' })
       })
     return () => {
       cancelled = true
@@ -86,7 +82,7 @@ export function EncryptionSetupPage() {
     if (pending || !user || password.length === 0) return
     const email = user.email
     if (!email) {
-      toast({ tone: 'error', title: "Couldn't check password", description: 'This account has no email.' })
+      toast.error("Couldn't check password", { description: 'This account has no email.' })
       return
     }
     setPending(true)
@@ -102,11 +98,7 @@ export function EncryptionSetupPage() {
       setPassword('')
       setBundle(created)
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't create encryption keys",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't create encryption keys", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -123,11 +115,7 @@ export function EncryptionSetupPage() {
       setBundle(null)
       navigate(next, { replace: true })
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't save encryption keys",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't save encryption keys", { description: error instanceof Error ? error.message : 'Try again.' })
     } finally {
       setPending(false)
     }
@@ -139,13 +127,9 @@ export function EncryptionSetupPage() {
       await navigator.clipboard.writeText(formatRecoveryKey(bundle.recoveryKey))
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
-      toast({ tone: 'success', title: 'Recovery key copied to clipboard.' })
+      toast.success('Recovery key copied to clipboard.')
     } catch (error) {
-      toast({
-        tone: 'error',
-        title: "Couldn't copy recovery key",
-        description: error instanceof Error ? error.message : 'Try again.',
-      })
+      toast.error("Couldn't copy recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
     }
   }
 

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/auth-context'
 import type { DisclosureCopy } from '@/features/onboarding/disclosures'
 import { supabase } from '@/lib/supabase'
@@ -46,7 +46,7 @@ export function DisclosureGate({ disclosure, children }: { disclosure: Disclosur
     })
     setPending(false)
     if (inserted.error && inserted.error.code !== '23505') {
-      toast({ tone: 'error', title: "Couldn't save your acknowledgement", description: inserted.error.message })
+      toast.error("Couldn't save your acknowledgement", { description: inserted.error.message })
       return
     }
     client.setQueryData(disclosureQueryKey(user.id, disclosure), true)

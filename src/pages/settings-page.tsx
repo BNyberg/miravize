@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   decodeWorkspaceIcon,
@@ -287,7 +287,7 @@ export function SettingsPage() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: qk.memberships })
     },
-    onError: (err: Error) => toast({ tone: 'error', title: "Couldn't save workspace", description: err.message }),
+    onError: (err: Error) => toast.error("Couldn't save workspace", { description: err.message }),
   })
 
   const createWs = useMutation({
@@ -326,7 +326,7 @@ export function SettingsPage() {
         setWorkspaceId(data.id)
       }
     },
-    onError: (err: Error) => toast({ tone: 'error', title: "Couldn't create workspace", description: err.message }),
+    onError: (err: Error) => toast.error("Couldn't create workspace", { description: err.message }),
   })
 
   function startCreate() {
@@ -380,7 +380,7 @@ export function SettingsPage() {
       setInviteRole('member')
       await refreshPeople()
     },
-    onError: (err: Error) => toast({ tone: 'error', title: "Couldn't send invite", description: err.message }),
+    onError: (err: Error) => toast.error("Couldn't send invite", { description: err.message }),
   })
 
   const revokeInvite = useMutation({
@@ -412,7 +412,7 @@ export function SettingsPage() {
       setConfirm(null)
       await refreshPeople()
     },
-    onError: (err: Error) => toast({ tone: 'error', title: "Couldn't delete invite", description: err.message }),
+    onError: (err: Error) => toast.error("Couldn't delete invite", { description: err.message }),
   })
 
   const removeMember = useMutation({
@@ -443,7 +443,7 @@ export function SettingsPage() {
       setConfirm(null)
       await refreshPeople()
     },
-    onError: (err: Error) => toast({ tone: 'error', title: "Couldn't delete member", description: err.message }),
+    onError: (err: Error) => toast.error("Couldn't delete member", { description: err.message }),
   })
 
   function openInvite() {
@@ -898,7 +898,7 @@ function EmailChips({
 
   function copyEmail(email: string) {
     void navigator.clipboard.writeText(email).catch(() => {
-      toast({ tone: 'error', title: "Couldn't copy email", description: email })
+      toast.error("Couldn't copy email", { description: email })
     })
   }
 

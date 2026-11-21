@@ -7,7 +7,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { rememberLoginPassword } from '@/features/crypto/login-secret'
 import { isValidEmail } from '@/lib/email'
 import { supabase } from '@/lib/supabase'
@@ -25,7 +25,7 @@ export function LoginPage() {
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     setPending(false)
     if (err) {
-      toast({ tone: 'error', title: "Couldn't sign in", description: err.message })
+      toast.error("Couldn't sign in", { description: err.message })
       return
     }
     rememberLoginPassword(email, password)

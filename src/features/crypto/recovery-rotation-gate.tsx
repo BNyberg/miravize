@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router'
 
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { loadCryptoProfile } from '@/lib/crypto/account-profile'
 import { supabase } from '@/lib/supabase'
 
@@ -20,11 +20,7 @@ export function RecoveryRotationGate({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        toast({
-          tone: 'error',
-          title: "Couldn't check the recovery key",
-          description: error instanceof Error ? error.message : 'Try again.',
-        })
+        toast.error("Couldn't check the recovery key", { description: error instanceof Error ? error.message : 'Try again.' })
         setStatus('error')
       })
     return () => {

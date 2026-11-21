@@ -5,7 +5,7 @@ Workspace-scoped time tracker, client reports with project hour splits, and an A
 ## Stack
 
 - Frontend: React + Vite + TypeScript, Tailwind, shadcn-style UI
-- Hosting: Cloudflare Pages (SPA)
+- Hosting: Cloudflare Workers Static Assets (SPA)
 - Backend: Supabase Auth, Postgres, Storage, Edge Functions
 
 ## Local setup
@@ -23,7 +23,7 @@ npm install
 npm run dev
 ```
 
-## Cloudflare Pages
+## Cloudflare Workers Static Assets
 
 - Build command: `npm run build`
 - Output directory: `dist`

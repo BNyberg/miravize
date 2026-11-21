@@ -9,7 +9,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/toast'
+import { toast } from 'sonner'
 import { rememberLoginPassword } from '@/features/crypto/login-secret'
 import { isValidEmail } from '@/lib/email'
 import { PASSWORD_RULES, passwordIsStrong } from '@/lib/password'
@@ -61,11 +61,11 @@ export function SignupPage() {
     const { data, error } = await supabase.rpc('beta_invite_open', { p_code: invite.trim() })
     setPending(false)
     if (error) {
-      toast({ tone: 'error', title: "Couldn't check invite code", description: error.message })
+      toast.error("Couldn't check invite code", { description: error.message })
       return
     }
     if (data !== true) {
-      toast({ tone: 'error', title: "Couldn't check invite code", description: "That invite code isn't valid." })
+      toast.error("Couldn't check invite code", { description: "That invite code isn't valid." })
       return
     }
     sessionStorage.setItem(EMAIL_KEY, email.trim())
@@ -83,7 +83,7 @@ export function SignupPage() {
     })
     setPending(false)
     if (error && !/already registered/i.test(error.message)) {
-      toast({ tone: 'error', title: "Couldn't create account", description: error.message })
+      toast.error("Couldn't create account", { description: error.message })
       if (/invite code|database error/i.test(error.message)) setPhase('email')
       return
     }
@@ -111,7 +111,7 @@ export function SignupPage() {
     setPending(false)
     if (error) {
       setCode('')
-      toast({ tone: 'error', title: "Couldn't verify email", description: error.message })
+      toast.error("Couldn't verify email", { description: error.message })
     }
   }
 
@@ -121,11 +121,11 @@ export function SignupPage() {
     const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() })
     setPending(false)
     if (error) {
-      toast({ tone: 'error', title: "Couldn't resend code", description: error.message })
+      toast.error("Couldn't resend code", { description: error.message })
       return
     }
     setCooldown(RESEND_SECONDS)
-    toast({ tone: 'success', title: 'Confirmation code sent', description: `Check ${email.trim()}.` })
+    toast.success('Confirmation code sent', { description: `Check ${email.trim()}.` })
   }
 
   return (
